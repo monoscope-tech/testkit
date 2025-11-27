@@ -2,8 +2,8 @@
 
 // Declare modules in the order needed by sibling modules.
 pub mod base_browser;
-pub mod base_request;
 pub mod base_cli;
+pub mod base_request;
 
 // Optionally re-export items:
 pub use base_request::{ConfigVariable, TestContext, run, run_json};
@@ -20,8 +20,8 @@ pub extern "C" fn haskell_binding(
     local_vars: *const c_char,
 ) -> *mut c_char {
     if content.is_null() || collection_id.is_null() || local_vars.is_null() {
-        let err = CString::new("{\"error\": \"Null pointer passed in.\"}")
-            .expect("CString::new failed");
+        let err =
+            CString::new("{\"error\": \"Null pointer passed in.\"}").expect("CString::new failed");
         return err.into_raw();
     }
 

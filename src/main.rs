@@ -1,8 +1,8 @@
 // src/main.rs
 
 mod base_browser;
-mod base_request;
 mod base_cli;
+mod base_request;
 
 use anyhow::Result;
 use base_cli::{Cli, Commands};
@@ -35,7 +35,13 @@ async fn main() -> Result<()> {
             println!("App mode not implemented. Use the 'test' or 'new' command.");
         }
         Some(Commands::Test { file }) => {
-            cli_run_test(file.clone(), &cli_instance.filter, &cli_instance.output, cli_instance.verbose).await?;
+            cli_run_test(
+                file.clone(),
+                &cli_instance.filter,
+                &cli_instance.output,
+                cli_instance.verbose,
+            )
+            .await?;
         }
         Some(Commands::New { file, test_type }) => {
             create_boilerplate(file.clone(), test_type)?;
