@@ -507,10 +507,7 @@ pub async fn base_request(
                         &params_vec,
                     );
 
-                    let verbose_output = curl_cmd;
-                    step_result.step_log.push_str(&verbose_output);
-                    log::info!(target: "testkit", "{}", verbose_output);
-                    println!("{}", verbose_output);
+                    log::info!(target: "testkit", "{}", curl_cmd);
                 }
 
                 let response = request_builder.send().await;
