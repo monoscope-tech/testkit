@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
             println!("App mode not implemented. Use the 'test' or 'new' command.");
         }
         Some(Commands::Test { file }) => {
-            cli_run_test(file.clone(), &cli_instance.filter, &cli_instance.output).await?;
+            cli_run_test(file.clone(), &cli_instance.filter, &cli_instance.output, cli_instance.verbose).await?;
         }
         Some(Commands::New { file, test_type }) => {
             create_boilerplate(file.clone(), test_type)?;
@@ -48,6 +48,7 @@ async fn cli_run_test(
     file_op: Option<PathBuf>,
     _filter: &Option<String>,
     output: &str,
+    verbose: bool,
 ) -> Result<()> {
     if let Some(file) = file_op {
         let content = fs::read_to_string(file.clone())?;
@@ -55,6 +56,7 @@ async fn cli_run_test(
             file: Arc::new(file.to_str().unwrap().to_string()),
             file_source: Arc::new(content.clone()),
             should_log: true,
+            verbose,
             ..Default::default()
         };
         let results = base_request::run(ctx, content).await?;
@@ -67,6 +69,7 @@ async fn cli_run_test(
                 file: Arc::new(file.to_str().unwrap().to_string()),
                 file_source: Arc::new(content.clone()),
                 should_log: true,
+                verbose,
                 ..Default::default()
             };
             let results = base_request::run(ctx, content).await?;
