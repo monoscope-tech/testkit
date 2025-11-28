@@ -1,6 +1,5 @@
 // src/base_request.rs
 
-use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime};
 use jsonpath_lib::select;
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, NamedSource, SourceSpan};
@@ -19,6 +18,7 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
+use anyhow::Result;
 
 // Import the browser module using a crate‑relative path.
 // IMPORTANT: Make sure that your crate root (in src/lib.rs or src/main.rs) declares:
