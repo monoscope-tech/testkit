@@ -122,7 +122,6 @@ pub struct RequestConfig {
     pub request_body: Option<HashMap<String, String>>,
     pub pre_request_hook: Option<String>,
     pub post_response_hook: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub curl: Option<String>,
 }
 
@@ -490,7 +489,6 @@ pub async fn base_request(
                     &params_vec,
                 );
 
-                // Store curl command in request_config
                 request_config.curl = Some(curl_cmd);
 
                 let response = request_builder.send().await;
