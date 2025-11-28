@@ -437,7 +437,9 @@ pub async fn base_request(
                 let params_vec = if let Some(v) = test_item.request.params.clone() {
                     Some(
                         v.iter()
-                            .map(|(k, v)| (replace_vars(k, &exports_map), replace_vars(v, &exports_map)))
+                            .map(|(k, v)| {
+                                (replace_vars(k, &exports_map), replace_vars(v, &exports_map))
+                            })
                             .collect(),
                     )
                 } else {
@@ -467,12 +469,8 @@ pub async fn base_request(
                         Value::String(s) => s.clone(),
                         _ => json.to_string(),
                     };
-                    let j_string = prepare_json_body(
-                        js_string.clone(),
-                        &exports_map,
-                        &mut step_result,
-                        false,
-                    );
+                    let j_string =
+                        prepare_json_body(js_string.clone(), &exports_map, &mut step_result, false);
                     processed_headers
                         .insert("Content-Type".to_string(), "application/json".to_string());
                     Some(j_string)

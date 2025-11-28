@@ -35,12 +35,7 @@ async fn main() -> Result<()> {
             println!("App mode not implemented. Use the 'test' or 'new' command.");
         }
         Some(Commands::Test { file }) => {
-            cli_run_test(
-                file.clone(),
-                &cli_instance.filter,
-                &cli_instance.output,
-            )
-            .await?;
+            cli_run_test(file.clone(), &cli_instance.filter, &cli_instance.output).await?;
         }
         Some(Commands::New { file, test_type }) => {
             create_boilerplate(file.clone(), test_type)?;
