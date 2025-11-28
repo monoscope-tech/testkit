@@ -26,10 +26,6 @@ pub struct Cli {
     /// Output format: plain or json (for CI systems)
     #[arg(short, long, global = true, default_value = "plain")]
     pub output: String,
-
-    /// Enable verbose mode to show curl representation of requests and responses
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
 }
 
 #[derive(Subcommand)]

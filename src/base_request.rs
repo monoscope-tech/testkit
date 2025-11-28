@@ -122,6 +122,8 @@ pub struct RequestConfig {
     pub request_body: Option<HashMap<String, String>>,
     pub pre_request_hook: Option<String>,
     pub post_response_hook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub curl: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -238,7 +240,6 @@ pub struct TestContext {
     pub file: Arc<String>,
     pub file_source: Arc<String>,
     pub should_log: bool,
-    pub verbose: bool,
 }
 
 pub async fn run(ctx: TestContext, exec_string: String) -> Result<Vec<RequestResult>> {
@@ -432,83 +433,74 @@ pub async fn base_request(
                     request_config.headers = Some(headers);
                 }
 
-                // Generate and display curl command if verbose mode is enabled
-                if iter_ctx.verbose {
-                    let method_str = test_item.request.http_method.get_method().to_string();
-                    let params_vec = if let Some(v) = test_item.request.params.clone() {
-                        Some(
-                            v.iter()
-                                .map(|(k, v)| {
-                                    (replace_vars(k, &exports_map), replace_vars(v, &exports_map))
-                                })
-                                .collect(),
-                        )
-                    } else {
-                        None
-                    };
+                let method_str = test_item.request.http_method.get_method().to_string();
+                let params_vec = if let Some(v) = test_item.request.params.clone() {
+                    Some(
+                        v.iter()
+                            .map(|(k, v)| (replace_vars(k, &exports_map), replace_vars(v, &exports_map)))
+                            .collect(),
+                    )
+                } else {
+                    None
+                };
 
-                    let mut processed_headers = HashMap::new();
-                    processed_headers.insert("X-Testkit-Run".to_string(), "true".to_string());
-                    if let Some(col) = &col_id {
-                        processed_headers
-                            .insert("X-Testkit-Collection-ID".to_string(), col.clone());
-                    }
-                    if let Some(headers) = &test_item.request.headers {
-                        for (name, mut value) in headers.clone() {
-                            for env_var in get_env_variable_paths(&value) {
-                                if let Ok(val) = get_env_variable(&env_var) {
-                                    value = value.replace(&env_var, &val);
-                                }
+                let mut processed_headers = HashMap::new();
+                if let Some(headers) = &test_item.request.headers {
+                    for (name, mut value) in headers.clone() {
+                        for env_var in get_env_variable_paths(&value) {
+                            if let Ok(val) = get_env_variable(&env_var) {
+                                value = value.replace(&env_var, &val);
                             }
-                            for export_var in get_vars(&value) {
-                                let key_str = export_var.replace("{{", "").replace("}}", "");
-                                if let Some(val) = exports_map.lock().unwrap().get(&key_str) {
-                                    value = value.replace(&export_var, &val.to_string());
-                                }
+                        }
+                        for export_var in get_vars(&value) {
+                            let key_str = export_var.replace("{{", "").replace("}}", "");
+                            if let Some(val) = exports_map.lock().unwrap().get(&key_str) {
+                                value = value.replace(&export_var, &val.to_string());
                             }
-                            processed_headers.insert(name, value);
                         }
+                        processed_headers.insert(name, value);
                     }
-
-                    let json_body_str = if let Some(json) = &test_item.request.json {
-                        let js_string = match json {
-                            Value::String(s) => s.clone(),
-                            _ => json.to_string(),
-                        };
-                        let j_string = prepare_json_body(
-                            js_string.clone(),
-                            &exports_map,
-                            &mut step_result,
-                            false,
-                        );
-                        processed_headers
-                            .insert("Content-Type".to_string(), "application/json".to_string());
-                        Some(j_string)
-                    } else {
-                        None
-                    };
-
-                    let request_body_str = if let Some(b) = &test_item.request.request_body {
-                        let mut body = b.clone();
-                        for (key, val) in body.clone().iter() {
-                            body.insert(key.clone(), replace_vars(val, &exports_map));
-                        }
-                        serde_json::to_string(&body).ok()
-                    } else {
-                        None
-                    };
-
-                    let curl_cmd = generate_curl_command(
-                        &method_str,
-                        &url,
-                        &Some(processed_headers),
-                        &json_body_str,
-                        &request_body_str,
-                        &params_vec,
-                    );
-
-                    log::info!(target: "testkit", "{}", curl_cmd);
                 }
+
+                let json_body_str = if let Some(json) = &test_item.request.json {
+                    let js_string = match json {
+                        Value::String(s) => s.clone(),
+                        _ => json.to_string(),
+                    };
+                    let j_string = prepare_json_body(
+                        js_string.clone(),
+                        &exports_map,
+                        &mut step_result,
+                        false,
+                    );
+                    processed_headers
+                        .insert("Content-Type".to_string(), "application/json".to_string());
+                    Some(j_string)
+                } else {
+                    None
+                };
+
+                let request_body_str = if let Some(b) = &test_item.request.request_body {
+                    let mut body = b.clone();
+                    for (key, val) in body.clone().iter() {
+                        body.insert(key.clone(), replace_vars(val, &exports_map));
+                    }
+                    serde_json::to_string(&body).ok()
+                } else {
+                    None
+                };
+
+                let curl_cmd = generate_curl_command(
+                    &method_str,
+                    &url,
+                    &Some(processed_headers),
+                    &json_body_str,
+                    &request_body_str,
+                    &params_vec,
+                );
+
+                // Store curl command in request_config
+                request_config.curl = Some(curl_cmd);
 
                 let response = request_builder.send().await;
                 match response {
@@ -1094,7 +1086,7 @@ fn generate_curl_command(
 
     // Add method if not GET
     if method != "GET" {
-        curl_cmd.push_str(&format!(" -X {} \\\n  '{}'", method, final_url));
+        curl_cmd.push_str(&format!(" -X {} '{}'", method, final_url));
     } else {
         curl_cmd.push_str(&format!(" '{}'", final_url));
     }

@@ -39,7 +39,6 @@ async fn main() -> Result<()> {
                 file.clone(),
                 &cli_instance.filter,
                 &cli_instance.output,
-                cli_instance.verbose,
             )
             .await?;
         }
@@ -54,7 +53,6 @@ async fn cli_run_test(
     file_op: Option<PathBuf>,
     _filter: &Option<String>,
     output: &str,
-    verbose: bool,
 ) -> Result<()> {
     if let Some(file) = file_op {
         let content = fs::read_to_string(file.clone())?;
@@ -62,7 +60,6 @@ async fn cli_run_test(
             file: Arc::new(file.to_str().unwrap().to_string()),
             file_source: Arc::new(content.clone()),
             should_log: true,
-            verbose,
             ..Default::default()
         };
         let results = base_request::run(ctx, content).await?;
@@ -75,7 +72,6 @@ async fn cli_run_test(
                 file: Arc::new(file.to_str().unwrap().to_string()),
                 file_source: Arc::new(content.clone()),
                 should_log: true,
-                verbose,
                 ..Default::default()
             };
             let results = base_request::run(ctx, content).await?;
