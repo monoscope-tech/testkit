@@ -1,5 +1,6 @@
 // src/base_request.rs
 
+use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime};
 use jsonpath_lib::select;
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, NamedSource, SourceSpan};
@@ -18,7 +19,6 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-use anyhow::Result;
 
 // Import the browser module using a crate‑relative path.
 // IMPORTANT: Make sure that your crate root (in src/lib.rs or src/main.rs) declares:
@@ -285,22 +285,18 @@ pub async fn base_request(
         }
     }
     for (i, test_item) in test_items.iter().enumerate() {
-        let iterations = test_item
-            .iterations
-            .clone()
-            .unwrap_or_else(|| vec![HashMap::new()]);
+        let iterations = test_item.iterations.clone().unwrap_or_else(|| vec![HashMap::new()]);
         for (iter_index, params) in iterations.into_iter().enumerate() {
             let mut iter_ctx = ctx.clone();
             for (k, v) in params.iter() {
-                exports_map
-                    .lock()
-                    .unwrap()
-                    .insert(k.to_string(), Value::String(v.clone()));
+                exports_map.lock().unwrap().insert(k.to_string(), Value::String(v.clone()));
             }
-            iter_ctx.step =
-                Some(Arc::new(test_item.title.clone().unwrap_or_else(|| {
-                    format!("Step {} (iter {})", i, iter_index)
-                })));
+            iter_ctx.step = Some(Arc::new(
+                test_item
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| format!("Step {} (iter {})", i, iter_index)),
+            ));
             iter_ctx.step_index = i as u32;
 
             if let Some(browser_config) = &test_item.browser {
@@ -365,11 +361,8 @@ pub async fn base_request(
                         log::info!(target: "testkit", "Pre-request hook result: {}", hook_result);
                     }
                 }
-                let url = format_url(
-                    &iter_ctx,
-                    &test_item.request.http_method.get_url(),
-                    &exports_map,
-                );
+                let url =
+                    format_url(&iter_ctx, &test_item.request.http_method.get_url(), &exports_map);
                 let method = test_item.request.http_method.get_method();
                 let mut request_builder = client.request(method, url.clone());
                 request_builder = request_builder.header("X-Testkit-Run", "true");
@@ -638,19 +631,13 @@ fn format_url(
 fn get_vars(expr: &str) -> Vec<String> {
     let regex_pattern = r#"\{\{([a-zA-Z0-9_]+)\}\}"#;
     let regex = Regex::new(regex_pattern).unwrap();
-    regex
-        .find_iter(expr)
-        .map(|v| v.as_str().to_string())
-        .collect()
+    regex.find_iter(expr).map(|v| v.as_str().to_string()).collect()
 }
 
 fn get_env_variable_paths(val: &String) -> Vec<String> {
     let regex_pattern = r#"\$\.(env\.[A-Za-z_][A-Za-z0-9_]*)"#;
     let regex = Regex::new(regex_pattern).unwrap();
-    regex
-        .find_iter(val)
-        .map(|v| v.as_str().to_string())
-        .collect()
+    regex.find_iter(val).map(|v| v.as_str().to_string()).collect()
 }
 
 fn replace_vars(expr: &str, exports_map: &Arc<Mutex<HashMap<String, Value>>>) -> String {
@@ -729,10 +716,7 @@ fn evaluate_expressions<'a, T: Clone + 'static>(
             }
             Err(err) => {
                 return Err(AssertionError {
-                    advice: Some(format!(
-                        "Could not evaluate jsonpath: {}, error: {}",
-                        path, err
-                    )),
+                    advice: Some(format!("Could not evaluate jsonpath: {}, error: {}", path, err)),
                     src: NamedSource::new(&*ctx.file, expr.clone()),
                     bad_bit: (0, 4).into(),
                 });
@@ -749,10 +733,7 @@ fn evaluate_expressions<'a, T: Clone + 'static>(
 }
 
 fn find_all_jsonpaths(input: &String) -> Vec<&str> {
-    input
-        .split_whitespace()
-        .filter(|x| x.starts_with("$.resp"))
-        .collect()
+    input.split_whitespace().filter(|x| x.starts_with("$.resp")).collect()
 }
 
 fn evaluate_value<'a, T: Clone + 'static>(
@@ -784,10 +765,7 @@ fn evaluate_value<'a, T: Clone + 'static>(
         Ok(v) => v,
         Err(err) => {
             return Err(AssertionError {
-                advice: Some(format!(
-                    "Could not resolve jsonpath: {}, error: {}",
-                    expr, err
-                )),
+                advice: Some(format!("Could not resolve jsonpath: {}, error: {}", expr, err)),
                 src: NamedSource::new(&*ctx.file, expr.clone()),
                 bad_bit: (0, 4).into(),
             });
@@ -807,11 +785,7 @@ fn evaluate_value<'a, T: Clone + 'static>(
     for (idx, val) in selected_result.iter().enumerate() {
         let pass =
             check_value_type(val, base_type, &date_format, expr, &ctx).map_err(|mut e| {
-                e.advice = Some(format!(
-                    "At index {}: {}",
-                    idx,
-                    e.advice.unwrap_or_default()
-                ));
+                e.advice = Some(format!("At index {}: {}", idx, e.advice.unwrap_or_default()));
                 e
             })?;
         if !pass {
@@ -906,18 +880,14 @@ fn evaluate_funcs<T: Clone + 'static>(
             return Ok((
                 fallback_path_check(jsonpath, &target_value, assert_type),
                 expr.to_string(),
-            ));
+            ))
         }
     };
     if selected_result.is_empty() {
-        return Ok((
-            fallback_path_check(jsonpath, &target_value, assert_type),
-            expr.to_string(),
-        ));
+        return Ok((fallback_path_check(jsonpath, &target_value, assert_type), expr.to_string()));
     }
-    let overall = selected_result
-        .iter()
-        .any(|val| funcs_check_one(val, &target_value, assert_type));
+    let overall =
+        selected_result.iter().any(|val| funcs_check_one(val, &target_value, assert_type));
     Ok((overall, expr.to_string()))
 }
 
@@ -1074,10 +1044,8 @@ fn generate_curl_command(
     let mut final_url = url.to_string();
     if let Some(params_vec) = params {
         if !params_vec.is_empty() {
-            let query_string: Vec<String> = params_vec
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect();
+            let query_string: Vec<String> =
+                params_vec.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
             final_url.push_str(&format!("?{}", query_string.join("&")));
         }
     }
