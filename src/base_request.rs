@@ -1,5 +1,6 @@
 // src/base_request.rs
 
+use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime};
 use jsonpath_lib::select;
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, NamedSource, SourceSpan};
@@ -18,7 +19,6 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-use anyhow::Result;
 
 // Import the browser module using a crate‑relative path.
 // IMPORTANT: Make sure that your crate root (in src/lib.rs or src/main.rs) declares:
@@ -240,10 +240,7 @@ pub struct TestContext {
     pub should_log: bool,
 }
 
-pub async fn run(
-    ctx: TestContext,
-    exec_string: String,
-) -> Result<Vec<RequestResult>> {
+pub async fn run(ctx: TestContext, exec_string: String) -> Result<Vec<RequestResult>> {
     let test_items: Vec<TestItem> = serde_yaml::from_str(&exec_string)?;
     log::debug!(target: "testkit", "test_items: {:#?}", test_items);
     let result = base_request(ctx.clone(), &test_items, None, None).await;
@@ -286,17 +283,11 @@ pub async fn base_request(
         }
     }
     for (i, test_item) in test_items.iter().enumerate() {
-        let iterations = test_item
-            .iterations
-            .clone()
-            .unwrap_or_else(|| vec![HashMap::new()]);
+        let iterations = test_item.iterations.clone().unwrap_or_else(|| vec![HashMap::new()]);
         for (iter_index, params) in iterations.into_iter().enumerate() {
             let mut iter_ctx = ctx.clone();
             for (k, v) in params.iter() {
-                exports_map
-                    .lock()
-                    .unwrap()
-                    .insert(k.to_string(), Value::String(v.clone()));
+                exports_map.lock().unwrap().insert(k.to_string(), Value::String(v.clone()));
             }
             iter_ctx.step = Some(Arc::new(
                 test_item
@@ -305,7 +296,7 @@ pub async fn base_request(
                     .unwrap_or_else(|| format!("Step {} (iter {})", i, iter_index)),
             ));
             iter_ctx.step_index = i as u32;
-            
+
             if let Some(browser_config) = &test_item.browser {
                 let browser_test_item =
                     BrowserTestItem::from_config(test_item.title.clone(), browser_config);
@@ -326,7 +317,7 @@ pub async fn base_request(
                 results.push(step_result);
                 continue;
             }
-            
+
             let mut client = reqwest::Client::builder().connection_verbose(true);
             if let Some(version) = test_item.request.http_version.clone() {
                 if version == "http-2" {
@@ -368,14 +359,18 @@ pub async fn base_request(
                         log::info!(target: "testkit", "Pre-request hook result: {}", hook_result);
                     }
                 }
-                let url = format_url(&iter_ctx, &test_item.request.http_method.get_url(), &exports_map);
+                let url =
+                    format_url(&iter_ctx, &test_item.request.http_method.get_url(), &exports_map);
                 let method = test_item.request.http_method.get_method();
                 let mut request_builder = client.request(method, url.clone());
                 request_builder = request_builder.header("X-Testkit-Run", "true");
                 if let Some(v) = test_item.request.params.clone() {
                     let mut params = vec![];
                     for (name, value) in v {
-                        params.push((replace_vars(name.as_str(), &exports_map), replace_vars(value.as_str(), &exports_map)));
+                        params.push((
+                            replace_vars(name.as_str(), &exports_map),
+                            replace_vars(value.as_str(), &exports_map),
+                        ));
                     }
                     request_builder = request_builder.query(&params);
                 }
@@ -403,7 +398,12 @@ pub async fn base_request(
                         Value::String(s) => s.clone(),
                         _ => json.to_string(),
                     };
-                    let j_string = prepare_json_body(js_string, &exports_map, &mut step_result, iter_ctx.should_log);
+                    let j_string = prepare_json_body(
+                        js_string,
+                        &exports_map,
+                        &mut step_result,
+                        iter_ctx.should_log,
+                    );
                     request_builder = request_builder.header("Content-Type", "application/json");
                     if let Ok(json) = serde_json::from_str::<Value>(&j_string) {
                         request_builder = request_builder.json(&json);
@@ -673,7 +673,7 @@ fn evaluate_value<'a, T: Clone + 'static>(
     value_type: &str,
 ) -> Result<(bool, String), AssertionError> {
     let (base_type, _) = if value_type.ends_with("All") || value_type.ends_with("Any") {
-        (&value_type[..value_type.len()-3], ())
+        (&value_type[..value_type.len() - 3], ())
     } else {
         (value_type, ())
     };
@@ -703,15 +703,18 @@ fn evaluate_value<'a, T: Clone + 'static>(
     };
     if selected_result.is_empty() {
         return Err(AssertionError {
-            advice: Some(format!("No values matched the JSONPath: {} (Add 'dump: true' to see response)", path)),
+            advice: Some(format!(
+                "No values matched the JSONPath: {} (Add 'dump: true' to see response)",
+                path
+            )),
             src: NamedSource::new(&*ctx.file, expr.clone()),
             bad_bit: (0, expr.len()).into(),
         });
     }
     let mut overall_pass = true;
     for (idx, val) in selected_result.iter().enumerate() {
-        let pass = check_value_type(val, base_type, &date_format, expr, &ctx)
-            .map_err(|mut e| {
+        let pass =
+            check_value_type(val, base_type, &date_format, expr, &ctx).map_err(|mut e| {
                 e.advice = Some(format!("At index {}: {}", idx, e.advice.unwrap_or_default()));
                 e
             })?;
@@ -803,12 +806,18 @@ fn evaluate_funcs<T: Clone + 'static>(
     let target_value = replace_vars(exprs[1], outputs);
     let selected_result = match select(&json_body, jsonpath) {
         Ok(v) => v,
-        Err(_e) => return Ok((fallback_path_check(jsonpath, &target_value, assert_type), expr.to_string())),
+        Err(_e) => {
+            return Ok((
+                fallback_path_check(jsonpath, &target_value, assert_type),
+                expr.to_string(),
+            ))
+        }
     };
     if selected_result.is_empty() {
         return Ok((fallback_path_check(jsonpath, &target_value, assert_type), expr.to_string()));
     }
-    let overall = selected_result.iter().any(|val| funcs_check_one(val, &target_value, assert_type));
+    let overall =
+        selected_result.iter().any(|val| funcs_check_one(val, &target_value, assert_type));
     Ok((overall, expr.to_string()))
 }
 
@@ -865,18 +874,12 @@ async fn check_assertions(
                 evaluate_expressions::<bool>(ctx.clone(), expr, &json_body, outputs)
                     .map(|(e, _)| ("OK", e, expr.clone()))
             }
-            Assert::IsArray(expr) => {
-                evaluate_value::<bool>(ctx.clone(), expr, &json_body, "array")
-                    .map(|(e, _)| ("ARRAY", e, expr.clone()))
-            }
-            Assert::IsEmpty(expr) => {
-                evaluate_value::<bool>(ctx.clone(), expr, &json_body, "empty")
-                    .map(|(e, _)| ("EMPTY", e, expr.clone()))
-            }
-            Assert::IsString(expr) => {
-                evaluate_value::<bool>(ctx.clone(), expr, &json_body, "str")
-                    .map(|(e, _)| ("STRING", e, expr.clone()))
-            }
+            Assert::IsArray(expr) => evaluate_value::<bool>(ctx.clone(), expr, &json_body, "array")
+                .map(|(e, _)| ("ARRAY", e, expr.clone())),
+            Assert::IsEmpty(expr) => evaluate_value::<bool>(ctx.clone(), expr, &json_body, "empty")
+                .map(|(e, _)| ("EMPTY", e, expr.clone())),
+            Assert::IsString(expr) => evaluate_value::<bool>(ctx.clone(), expr, &json_body, "str")
+                .map(|(e, _)| ("STRING", e, expr.clone())),
             Assert::IsStringAll(expr) => {
                 evaluate_value::<bool>(ctx.clone(), expr, &json_body, "strAll")
                     .map(|(e, _)| ("STRING ALL", e, expr.clone()))
@@ -901,18 +904,12 @@ async fn check_assertions(
                 evaluate_value::<bool>(ctx.clone(), expr, &json_body, "bool")
                     .map(|(e, _)| ("BOOLEAN", e, expr.clone()))
             }
-            Assert::IsNull(expr) => {
-                evaluate_value::<bool>(ctx.clone(), expr, &json_body, "null")
-                    .map(|(e, _)| ("NULL", e, expr.clone()))
-            }
-            Assert::Exists(expr) => {
-                evaluate_value::<bool>(ctx.clone(), expr, &json_body, "exists")
-                    .map(|(e, _)| ("EXISTS", e, expr.clone()))
-            }
-            Assert::IsDate(expr) => {
-                evaluate_value::<bool>(ctx.clone(), expr, &json_body, "date")
-                    .map(|(e, _)| ("DATE", e, expr.clone()))
-            }
+            Assert::IsNull(expr) => evaluate_value::<bool>(ctx.clone(), expr, &json_body, "null")
+                .map(|(e, _)| ("NULL", e, expr.clone())),
+            Assert::Exists(expr) => evaluate_value::<bool>(ctx.clone(), expr, &json_body, "exists")
+                .map(|(e, _)| ("EXISTS", e, expr.clone())),
+            Assert::IsDate(expr) => evaluate_value::<bool>(ctx.clone(), expr, &json_body, "date")
+                .map(|(e, _)| ("DATE", e, expr.clone())),
             Assert::NotEmpty(expr) => {
                 evaluate_value::<bool>(ctx.clone(), expr, &json_body, "notEmpty")
                     .map(|(e, _)| ("NOT EMPTY", e, expr.clone()))

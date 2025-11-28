@@ -15,10 +15,7 @@ pub enum BrowserAction {
     /// Click an element specified by a CSS selector.
     Click { selector: String },
     /// Fill out form fields and then click the submit element.
-    FillAndSubmit {
-        fields: HashMap<String, String>,
-        submit_selector: String,
-    },
+    FillAndSubmit { fields: HashMap<String, String>, submit_selector: String },
 }
 
 // A browser test item combines an optional title with a browser action.
@@ -35,12 +32,10 @@ impl BrowserTestItem {
     /// Converts a DSL browser configuration (BrowserTestConfig) into a BrowserTestItem.
     pub fn from_config(title: Option<String>, config: &BrowserTestConfig) -> Self {
         let action = match config.action.as_str() {
-            "navigate" => BrowserAction::Navigate {
-                url: config.url.clone().unwrap_or_default(),
-            },
-            "click" => BrowserAction::Click {
-                selector: config.selector.clone().unwrap_or_default(),
-            },
+            "navigate" => BrowserAction::Navigate { url: config.url.clone().unwrap_or_default() },
+            "click" => {
+                BrowserAction::Click { selector: config.selector.clone().unwrap_or_default() }
+            }
             "fillAndSubmit" => BrowserAction::FillAndSubmit {
                 fields: config.fields.clone().unwrap_or_default(),
                 submit_selector: config.submit_selector.clone().unwrap_or_default(),
@@ -54,24 +49,24 @@ impl BrowserTestItem {
 /// Runs the browser action defined by the BrowserTestItem.
 pub async fn run_browser_action(item: BrowserTestItem) -> Result<()> {
     log::info!("Running browser test: {:?}", item);
-    
+
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
             .headless_mode(HeadlessMode::True)
             .build()
-            .map_err(|e| anyhow::anyhow!(e))?
+            .map_err(|e| anyhow::anyhow!(e))?,
     )
     .await?;
-    
+
     // Process browser events in a spawned task.
     tokio::spawn(async move {
         while let Some(event) = handler.next().await {
             log::debug!("Browser event: {:?}", event);
         }
     });
-    
+
     let page = browser.new_page("about:blank").await?;
-    
+
     match item.browser {
         BrowserAction::Navigate { url } => {
             page.goto(&url).await?;
@@ -91,10 +86,10 @@ pub async fn run_browser_action(item: BrowserTestItem) -> Result<()> {
             page.wait_for_navigation().await?;
         }
     }
-    
+
     let screenshot = page.screenshot(ScreenshotParams::default()).await?;
     log::info!("Screenshot taken ({} bytes)", screenshot.len());
-    
+
     page.close().await?;
     browser.close().await?;
     Ok(())

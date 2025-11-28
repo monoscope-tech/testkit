@@ -1,8 +1,8 @@
 // src/main.rs
 
 mod base_browser;
-mod base_request;
 mod base_cli;
+mod base_request;
 
 use anyhow::Result;
 use base_cli::{Cli, Commands};
