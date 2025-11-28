@@ -1089,25 +1089,21 @@ fn generate_curl_command(
         curl_cmd.push_str(&format!(" '{}'", final_url));
     }
 
-    // Add headers on separate lines
     if let Some(headers_map) = headers {
         for (key, value) in headers_map {
-            // Escape single quotes in the value
             let escaped_value = value.replace("'", "'\\''");
-            curl_cmd.push_str(&format!(" \\\n  -H '{}: {}'", key, escaped_value));
+            curl_cmd.push_str(&format!(" -H '{}: {}'", key, escaped_value));
         }
     }
 
-    // Add JSON body
     if let Some(json) = json_body {
         let escaped_json = json.replace("'", "'\\''");
-        curl_cmd.push_str(&format!(" \\\n  -d '{}'", escaped_json));
+        curl_cmd.push_str(&format!(" -d '{}'", escaped_json));
     }
 
-    // Add request body
     if let Some(body) = request_body {
         let escaped_body = body.replace("'", "'\\''");
-        curl_cmd.push_str(&format!(" \\\n  -d '{}'", escaped_body));
+        curl_cmd.push_str(&format!(" -d '{}'", escaped_body));
     }
 
     curl_cmd
