@@ -341,7 +341,7 @@ impl Runner {
             }
             Event::Popup(into) => {
                 use chromiumoxide::cdp::browser_protocol::target as tg;
-                let me = self.tab(None).await?.page.target_id().clone();
+                let me = self.tab(None).await?.cdp()?.target_id().clone();
                 let infos = self
                     .chrome()
                     .await?
@@ -579,7 +579,10 @@ impl Runner {
                                 p[k] = x.clone()
                             }
                         }
-                        let mets = t.page.metrics().await;
+                        let mets = match &t.page {
+                            Some(pg) => pg.metrics().await.map_err(|e| anyhow!(e)),
+                            None => Err(anyhow!("no metrics")),
+                        };
                         if self.coverage.is_some() {
                             if let Ok(c) = self.coverage_read().await {
                                 for k in ["unused_js", "unused_css"] {
@@ -611,12 +614,11 @@ impl Runner {
                     }
                     Subject::Cookie(n) => {
                         let t = self.tab(session.as_deref()).await?;
-                        t.page
-                            .get_cookies()
+                        t.cookies()
                             .await?
                             .into_iter()
-                            .find(|c| &c.name == n)
-                            .map(|c| json!(c.value))
+                            .find(|c| &c.0 == n)
+                            .map(|c| json!(c.1))
                             .unwrap_or(Value::Null)
                     }
                     Subject::LongTasks(over) => {
@@ -697,8 +699,10 @@ impl Runner {
             if browser && r.done && r.failed.is_none() {
                 let mut body = r.body.clone();
                 if body.is_none() {
-                    if let Some(t) = self.tabs.get(&name) {
-                        if let Ok(b) = t.page.execute(chromiumoxide::cdp::browser_protocol::network::GetResponseBodyParams::new(r.id.clone())).await {
+                    if let Some((b, _, _)) = self.tabs.get(&name).and_then(|t| t.bidi.clone()) {
+                        body = b.body(&r.id).await
+                    } else if let Some(t) = self.tabs.get(&name) {
+                        if let Some(Ok(b)) = match &t.page { Some(p) => Some(p.execute(chromiumoxide::cdp::browser_protocol::network::GetResponseBodyParams::new(r.id.clone())).await), None => None } {
                             use base64::Engine;
                             body = Some(if b.base64_encoded { String::from_utf8_lossy(&base64::engine::general_purpose::STANDARD.decode(&b.body).unwrap_or_default()).to_string() } else { b.body.clone() });
                         }

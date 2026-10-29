@@ -75,6 +75,9 @@ fn config(o: &RunOpts) -> Config {
         if let Some(v) = l["headed"].as_bool() {
             c.headed = v
         }
+        if let Some(v) = l["browser"].as_str() {
+            c.firefox = v.eq_ignore_ascii_case("firefox")
+        }
         if let Some(v) = l["deterministic"].as_bool() {
             c.deterministic = v
         }
@@ -104,6 +107,9 @@ fn config(o: &RunOpts) -> Config {
     }
     if o.headed || std::env::var("TESTKIT_HEADED").is_ok() {
         c.headed = true
+    }
+    if let Some(b) = o.browser.clone().or_else(|| std::env::var("TESTKIT_BROWSER").ok()) {
+        c.firefox = b.eq_ignore_ascii_case("firefox")
     }
     c
 }
@@ -152,6 +158,9 @@ async fn daemon_args(o: &RunOpts) -> Vec<String> {
     let mut a = vec!["--budget".to_string(), o.budget.to_string()];
     if o.headed {
         a.push("--headed".into())
+    }
+    if let Some(b) = &o.browser {
+        a.extend(["--browser".into(), b.clone()])
     }
     if let Some(u) = &o.base_url {
         a.extend(["--base-url".into(), u.clone()])
@@ -703,6 +712,7 @@ async fn run(cli: Cli) -> Result<i32> {
                     "--session" => o.session = it.next().unwrap_or(o.session),
                     "--base-url" => o.base_url = it.next(),
                     "--headed" => o.headed = true,
+                    "--browser" => o.browser = it.next(),
                     "-o" | "--output" => out = it.next().unwrap_or(out),
                     _ => rest.push(w),
                 }

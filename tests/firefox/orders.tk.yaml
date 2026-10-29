@@ -1,0 +1,47 @@
+# Firefox over WebDriver BiDi: the Chromium login and CRUD flows, unchanged. Runs when Firefox is installed (tests/firefox.rs).
+- meta: { base_url: "http://127.0.0.1:${port}", browser: firefox }
+- call: ../tk/flows/app.yaml
+  exports: [port]
+
+- claim: Wrong credentials show an error, right ones sign in
+- visit: /login
+- fill: field "Email" with "admin@acme.com"
+- fill: field "Password" with "wrong"
+- click: button "Sign in"
+- expect: alert "Invalid email or password" is visible
+- expect: the status of request "POST /api/session" is 401
+- check: checkbox "Remember me"
+- expect: checkbox "Remember me" is checked
+- fill: field "Password" with "hunter22"
+- press: Enter
+- expect: heading "Dashboard" is visible
+- expect: the url of page ends with "/dashboard"
+- expect: the cookie "sid" exists
+- expect: no console errors
+
+- claim: A user can create an order and read it back through the API
+- click: button "New order"
+- fill: field "Customer" with "Alice"
+- select: field "Plan" with "Pro"
+- click: button "Save"
+- expect: alert "Order created" is visible
+- extract: (the json of request "POST /api/orders")'s id into order_id
+- expect: 'heading "Order #${order_id}" is visible'
+- GET: /api/orders/${order_id}
+  cookies: from default
+  asserts:
+    - ok: its json's customer is "Alice"
+
+- claim: Deleting asks for confirmation and removes the row
+- visit: /orders
+- expect: table "Orders"
+  matches:
+    - row /Alice/:
+      - cell "Pro"
+- click: button "Delete" in row /Alice/
+  dialog: dismiss
+- expect: row /Alice/ is visible
+- click: button "Delete" in row /Alice/
+  dialog: accept
+- expect: no row /Alice/
+- shot: firefox-orders.png

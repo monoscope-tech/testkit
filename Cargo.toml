@@ -41,6 +41,7 @@ chrono = "0.4.26"
 walkdir = "2.3.3"
 chromiumoxide = "0.9"
 futures-util = "0.3"
+async-tungstenite = { version = "0.32", features = ["tokio-runtime"] }
 winnow = "0.7"
 portable-pty = "0.9"
 vt100 = "0.15"

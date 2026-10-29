@@ -3,6 +3,7 @@
 // Declare modules in the order needed by sibling modules.
 pub mod act;
 pub mod base_request;
+pub mod bidi;
 pub mod browser;
 pub mod cli;
 pub mod expr;

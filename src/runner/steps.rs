@@ -30,9 +30,9 @@ impl Runner {
                 if cov {
                     // CSS rule tracking is per document
                     use chromiumoxide::cdp::browser_protocol::{css, dom};
-                    t.page.execute(dom::EnableParams::default()).await.ok();
-                    t.page.execute(css::EnableParams::default()).await.ok();
-                    t.page.execute(css::StartRuleUsageTrackingParams::default()).await.ok();
+                    t.cdp()?.execute(dom::EnableParams::default()).await.ok();
+                    t.cdp()?.execute(css::EnableParams::default()).await.ok();
+                    t.cdp()?.execute(css::StartRuleUsageTrackingParams::default()).await.ok();
                 }
                 Ok(t.page_state().await)
             }
@@ -346,8 +346,8 @@ impl Runner {
         let dir = self.dir.clone();
         let want = session.clone().unwrap_or(self.cur_b.clone());
         if self.front != want {
-            if let Ok(t) = self.tab(Some(&want)).await {
-                t.page.bring_to_front().await.ok();
+            if let Ok(Some(p)) = self.tab(Some(&want)).await.map(|t| t.page.clone()) {
+                p.bring_to_front().await.ok();
             }
             self.front = want;
         }
@@ -443,7 +443,7 @@ impl Runner {
                 }
             }
             "hover" => {
-                t.page.move_mouse(chromiumoxide::layout::Point { x, y }).await?;
+                t.hover_at(x, y).await?;
             }
             "focus" => {
                 t.tk("focusSelect", std::slice::from_ref(&rf)).await?;
@@ -524,18 +524,18 @@ impl Runner {
                 .build()
                 .unwrap()
         };
-        t.page.execute(mouse(DispatchMouseEventType::MouseMoved, pts[0])).await?;
-        t.page.execute(mouse(DispatchMouseEventType::MousePressed, pts[0])).await?;
+        t.cdp()?.execute(mouse(DispatchMouseEventType::MouseMoved, pts[0])).await?;
+        t.cdp()?.execute(mouse(DispatchMouseEventType::MousePressed, pts[0])).await?;
         for i in 1..=10 {
             let f = i as f64 / 10.0;
-            t.page
+            t.cdp()?
                 .execute(mouse(
                     DispatchMouseEventType::MouseMoved,
                     (pts[0].0 + (pts[1].0 - pts[0].0) * f, pts[0].1 + (pts[1].1 - pts[0].1) * f),
                 ))
                 .await?;
         }
-        t.page.execute(mouse(DispatchMouseEventType::MouseReleased, pts[1])).await?;
+        t.cdp()?.execute(mouse(DispatchMouseEventType::MouseReleased, pts[1])).await?;
         Ok(json!({"from": pts[0], "to": pts[1]}))
     }
 
@@ -609,8 +609,8 @@ impl Runner {
     }
     pub(crate) async fn heap(&mut self) -> Result<f64> {
         let t = self.tab(None).await?;
-        t.page.execute(chromiumoxide::cdp::js_protocol::heap_profiler::CollectGarbageParams::default()).await.ok();
-        let m = t.page.metrics().await?;
+        t.cdp()?.execute(chromiumoxide::cdp::js_protocol::heap_profiler::CollectGarbageParams::default()).await.ok();
+        let m = t.cdp()?.metrics().await?;
         Ok(m.iter().find(|m| m.name == "JSHeapUsedSize").map(|m| m.value).unwrap_or(0.0))
     }
     pub(crate) async fn devtools(
@@ -625,12 +625,12 @@ impl Runner {
         std::fs::create_dir_all(&dir).ok();
         match (what, on) {
             ("profile", true) => {
-                t.page.execute(profiler::EnableParams::default()).await?;
-                t.page.execute(profiler::StartParams::default()).await?;
+                t.cdp()?.execute(profiler::EnableParams::default()).await?;
+                t.cdp()?.execute(profiler::StartParams::default()).await?;
                 Ok(Value::Null)
             }
             ("profile", false) => {
-                let p = t.page.execute(profiler::StopParams::default()).await?;
+                let p = t.cdp()?.execute(profiler::StopParams::default()).await?;
                 let path =
                     dir.join(format!("{}.cpuprofile", into.unwrap_or_else(|| "profile".into())));
                 std::fs::write(&path, serde_json::to_vec(&p.profile)?)?;
@@ -639,7 +639,7 @@ impl Runner {
             }
             ("trace", true) => {
                 use chromiumoxide::cdp::browser_protocol::tracing as tr;
-                let mut s = t.page.event_listener::<tr::EventDataCollected>().await?;
+                let mut s = t.cdp()?.event_listener::<tr::EventDataCollected>().await?;
                 let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
                 let b2 = buf.clone();
                 tokio::spawn(async move {
@@ -661,13 +661,13 @@ impl Runner {
                         .to_vec(),
                     )
                     .build();
-                t.page.execute(tr::StartParams::builder().trace_config(cfg).build()).await?;
+                t.cdp()?.execute(tr::StartParams::builder().trace_config(cfg).build()).await?;
                 self.trace_buf = Some(buf);
                 Ok(Value::Null)
             }
             ("trace", false) => {
                 use chromiumoxide::cdp::browser_protocol::tracing as tr;
-                t.page.execute(tr::EndParams::default()).await?;
+                t.cdp()?.execute(tr::EndParams::default()).await?;
                 tokio::time::sleep(Duration::from_millis(700)).await;
                 let buf = self
                     .trace_buf
@@ -682,8 +682,8 @@ impl Runner {
             }
             ("coverage", true) => {
                 use chromiumoxide::cdp::browser_protocol::{css, dom};
-                t.page.execute(profiler::EnableParams::default()).await?;
-                t.page
+                t.cdp()?.execute(profiler::EnableParams::default()).await?;
+                t.cdp()?
                     .execute(
                         profiler::StartPreciseCoverageParams::builder()
                             .call_count(true)
@@ -692,7 +692,7 @@ impl Runner {
                     )
                     .await?;
                 let mut cov = Coverage::default();
-                let mut added = t.page.event_listener::<css::EventStyleSheetAdded>().await?;
+                let mut added = t.cdp()?.event_listener::<css::EventStyleSheetAdded>().await?;
                 let sheets = cov.sheets.clone();
                 cov.listener = Some(tokio::spawn(async move {
                     use futures_util::StreamExt;
@@ -703,9 +703,9 @@ impl Runner {
                             .insert(e.header.style_sheet_id.inner().clone(), e.header.length);
                     }
                 }));
-                t.page.execute(dom::EnableParams::default()).await?;
-                t.page.execute(css::EnableParams::default()).await?;
-                t.page.execute(css::StartRuleUsageTrackingParams::default()).await?;
+                t.cdp()?.execute(dom::EnableParams::default()).await?;
+                t.cdp()?.execute(css::EnableParams::default()).await?;
+                t.cdp()?.execute(css::StartRuleUsageTrackingParams::default()).await?;
                 self.coverage = Some(cov);
                 Ok(Value::Null)
             }
@@ -990,11 +990,10 @@ impl Runner {
             let s = from.trim().trim_start_matches("from").trim().to_string();
             let t = self.tab(Some(&s)).await?;
             let cookies = t
-                .page
-                .get_cookies()
+                .cookies()
                 .await?
                 .iter()
-                .map(|c| format!("{}={}", c.name, c.value))
+                .map(|(n, v)| format!("{n}={v}"))
                 .collect::<Vec<_>>()
                 .join("; ");
             b = b.header("Cookie", cookies);
@@ -1173,19 +1172,19 @@ impl Runner {
         }
         let t = self.tab(None).await?;
         let js = t
-            .page
+            .cdp()?
             .execute(profiler::TakePreciseCoverageParams::default())
             .await?
             .result
             .result
             .clone();
         let rules = t
-            .page
+            .cdp()?
             .execute(css::StopRuleUsageTrackingParams::default())
             .await
             .map(|r| r.result.rule_usage.clone())
             .unwrap_or_default();
-        t.page.execute(css::StartRuleUsageTrackingParams::default()).await.ok();
+        t.cdp()?.execute(css::StartRuleUsageTrackingParams::default()).await.ok();
         let cov = self.coverage.as_mut().unwrap();
         for s in js.iter().filter(|s| !s.url.is_empty() && !s.url.starts_with("chrome")) {
             let len = s

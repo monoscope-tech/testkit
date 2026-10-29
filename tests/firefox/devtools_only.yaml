@@ -1,0 +1,3 @@
+- meta: { browser: firefox }
+- visit: about:blank
+- trace: start

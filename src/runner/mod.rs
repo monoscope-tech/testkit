@@ -28,6 +28,8 @@ use std::time::{Duration, Instant};
 pub struct Config {
     pub base_url: Option<String>,
     pub headed: bool,
+    /// Drive Firefox over WebDriver BiDi instead of Chromium.
+    pub firefox: bool,
     pub action_ms: u64,
     pub expect_ms: u64,
     pub nav_ms: u64,
@@ -50,6 +52,7 @@ impl Default for Config {
         Config {
             base_url: None,
             headed: false,
+            firefox: false,
             action_ms: 5000,
             expect_ms: 5000,
             nav_ms: 15000,
@@ -165,6 +168,7 @@ pub struct Runner {
     /// Accumulated coverage: script url → used-byte bitmap; css rules → used.
     pub(crate) coverage: Option<Coverage>,
     pub(crate) device: Option<crate::mobile::Device>,
+    firefox: Option<std::sync::Arc<crate::bidi::Bidi>>,
 }
 
 const BROWSER_VERBS: &[&str] = &[
@@ -231,6 +235,7 @@ impl Runner {
             trace_buf: None,
             coverage: None,
             device: None,
+            firefox: None,
         }
     }
 
@@ -413,6 +418,7 @@ impl Runner {
                 "deterministic" => self.cfg.deterministic = v.as_bool().unwrap_or(false),
                 "policy" => self.cfg.policy = serde_json::from_value(v.clone()).ok(),
                 "headed" => self.cfg.headed = v.as_bool().unwrap_or(false),
+                "browser" => self.cfg.firefox = scalar_text(v).eq_ignore_ascii_case("firefox"),
                 "secret" | "secrets" => self.cfg.secrets.extend(
                     v.as_array()
                         .map(|a| a.iter().map(scalar_text).collect())
@@ -530,15 +536,24 @@ impl Runner {
         let name = name.map(String::from).unwrap_or_else(|| self.cur_b.clone());
         if !self.tabs.contains_key(&name) {
             let isolated = self.cfg.attach.is_none();
-            let t = self.chrome().await?.tab(isolated).await?;
+            let t = if self.cfg.firefox {
+                if self.firefox.is_none() {
+                    self.firefox = Some(crate::bidi::Bidi::launch(self.cfg.headed).await?)
+                }
+                self.firefox.as_ref().unwrap().tab().await?
+            } else {
+                self.chrome().await?.tab(isolated).await?
+            };
             if self.cfg.deterministic {
                 deterministic(&t).await.ok();
             }
             *t.routes.lock().unwrap() = self.routes.clone();
             t.sync_routes().await?;
-            self.known_pages.push(t.page.target_id().inner().clone());
-            if !self.tabs.is_empty() {
-                t.page.bring_to_front().await.ok();
+            if let Some(p) = &t.page {
+                self.known_pages.push(p.target_id().inner().clone());
+                if !self.tabs.is_empty() {
+                    p.bring_to_front().await.ok();
+                }
             }
             self.front = name.clone();
             self.tabs.insert(name.clone(), t);
@@ -863,10 +878,10 @@ pub(crate) async fn enter_frame<'a>(
 
 async fn deterministic(t: &Tab) -> Result<()> {
     use chromiumoxide::cdp::browser_protocol::emulation;
-    t.page.execute(emulation::SetTimezoneOverrideParams::new("UTC")).await?;
-    t.page.execute(emulation::SetLocaleOverrideParams::builder().locale("en-US").build()).await?;
+    t.cdp()?.execute(emulation::SetTimezoneOverrideParams::new("UTC")).await?;
+    t.cdp()?.execute(emulation::SetLocaleOverrideParams::builder().locale("en-US").build()).await?;
     t.emulate("reduced-motion").await?;
-    t.page.execute(chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams::new(
+    t.cdp()?.execute(chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams::new(
         "(()=>{let s=42;Math.random=()=>((s=Math.imul(48271,s)%2147483647)&2147483647)/2147483647;const D=Date;const T0=new D('2026-01-01T09:00:00Z').getTime();const p0=performance.now();globalThis.Date=class extends D{constructor(...a){super(...(a.length?a:[T0+performance.now()-p0]))}static now(){return T0+performance.now()-p0}};addEventListener('DOMContentLoaded',()=>{const st=document.createElement('style');st.textContent='*,*::before,*::after{transition:none!important;animation:none!important;caret-color:transparent!important}';document.head.appendChild(st)})})()",
     )).await?;
     Ok(())

@@ -33,6 +33,9 @@ pub struct RunOpts {
     /// Show the browser window
     #[arg(long, global = true)]
     pub headed: bool,
+    /// Browser engine: chromium (default) or firefox
+    #[arg(long, global = true)]
+    pub browser: Option<String>,
     /// Append successful steps to this .tk.yaml file
     #[arg(long, global = true)]
     pub record: Option<PathBuf>,

@@ -252,7 +252,9 @@ impl Chrome {
     /// Closes a session's tab and drops its browser context (other files' contexts are untouched).
     pub async fn release(&self, t: Tab) {
         let ctx = t.ctx.clone();
-        t.page.clone().close().await.ok();
+        if let Some(p) = t.page.clone() {
+            p.close().await.ok();
+        }
         drop(t);
         if let Some(c) = ctx {
             self.browser.execute(target::DisposeBrowserContextParams::new(c)).await.ok();
@@ -281,7 +283,10 @@ pub fn rand_id() -> String {
 }
 
 pub struct Tab {
-    pub page: Page,
+    /// The Chromium page (None for Firefox, which runs over WebDriver BiDi).
+    pub page: Option<Page>,
+    /// Firefox: the connection, browsing context and user context.
+    pub bidi: Option<(Arc<crate::bidi::Bidi>, String, String)>,
     /// The isolated browser context this tab owns (disposed with the session).
     pub ctx: Option<chromiumoxide::cdp::browser_protocol::browser::BrowserContextId>,
     pub log: Arc<Mutex<Log>>,
@@ -295,7 +300,15 @@ pub struct Tab {
 
 impl Drop for Tab {
     fn drop(&mut self) {
-        self.tasks.iter().for_each(|t| t.abort())
+        self.tasks.iter().for_each(|t| t.abort());
+        if let (Some((b, ctx, uc)), Ok(h)) =
+            (self.bidi.take(), tokio::runtime::Handle::try_current())
+        {
+            b.sinks.lock().unwrap().remove(&ctx);
+            h.spawn(async move {
+                b.send("browser.removeUserContext", json!({"userContext": uc})).await.ok()
+            });
+        }
     }
 }
 
@@ -304,6 +317,25 @@ fn obj_text(o: &runtime::RemoteObject) -> String {
 }
 
 impl Tab {
+    pub fn cdp(&self) -> Result<&Page> {
+        self.page.as_ref().ok_or_else(|| anyhow!("E_UNSUPPORTED this step needs Chromium's DevTools protocol; Firefox (WebDriver BiDi) supports navigation, actions, expect, snapshot, shot, dialogs, console and requests"))
+    }
+    pub(crate) fn bidi(b: Arc<crate::bidi::Bidi>, ctx: String, uc: String) -> Tab {
+        let log = Arc::new(Mutex::new(Log::default()));
+        let dialog = Arc::new(Mutex::new((false, None)));
+        b.sinks.lock().unwrap().insert(ctx.clone(), (log.clone(), dialog.clone()));
+        Tab {
+            page: None,
+            bidi: Some((b, ctx, uc)),
+            ctx: None,
+            log,
+            routes: Arc::default(),
+            dialog,
+            base: Arc::default(),
+            eval_ctx: Mutex::new(None),
+            tasks: vec![],
+        }
+    }
     async fn wrap(page: Page) -> Result<Self> {
         let log = Arc::new(Mutex::new(Log::default()));
         let routes: Arc<Mutex<Vec<Route>>> = Arc::default();
@@ -490,13 +522,27 @@ impl Tab {
                 }
             }));
         }
-        let tab =
-            Tab { page, ctx: None, log, routes, dialog, base, eval_ctx: Mutex::new(None), tasks };
+        let tab = Tab {
+            page: Some(page),
+            bidi: None,
+            ctx: None,
+            log,
+            routes,
+            dialog,
+            base,
+            eval_ctx: Mutex::new(None),
+            tasks,
+        };
         tab.eval_raw(INJECT).await.ok();
         Ok(tab)
     }
 
     pub async fn eval_raw(&self, js: &str) -> Result<Value> {
+        if let Some((b, ctx, _)) = &self.bidi {
+            return tokio::time::timeout(Duration::from_secs(30), b.eval(ctx, js))
+                .await
+                .map_err(|_| anyhow!("the page did not respond within 30s"))?;
+        }
         let mut p = runtime::EvaluateParams::builder()
             .expression(js)
             .await_promise(true)
@@ -505,7 +551,7 @@ impl Tab {
             p = p.context_id(runtime::ExecutionContextId::new(c));
         }
         let p = p.build().map_err(|e| anyhow!(e))?;
-        let r = tokio::time::timeout(Duration::from_secs(30), self.page.execute(p))
+        let r = tokio::time::timeout(Duration::from_secs(30), self.cdp()?.execute(p))
             .await
             .map_err(|_| anyhow!("the page did not respond within 30s"))??;
         if let Some(ex) = &r.result.exception_details {
@@ -528,6 +574,9 @@ impl Tab {
     /// Fetch interception: routes at the request stage; fetch/XHR bodies captured at the response stage.
     pub async fn sync_routes(&self) -> Result<()> {
         let rs = self.routes.lock().unwrap().clone();
+        if self.bidi.is_some() {
+            return if rs.is_empty() { Ok(()) } else { self.cdp().map(drop) };
+        }
         let mut pats = vec![];
         for ty in [net::ResourceType::Fetch, net::ResourceType::Xhr] {
             pats.push(
@@ -554,7 +603,7 @@ impl Tab {
                     .build(),
             )
         }
-        self.page.execute(fetch::EnableParams::builder().patterns(pats).build()).await?;
+        self.cdp()?.execute(fetch::EnableParams::builder().patterns(pats).build()).await?;
         Ok(())
     }
     pub async fn goto(&self, url: &str) -> Result<()> {
@@ -564,8 +613,18 @@ impl Tab {
         {
             *self.base.lock().unwrap() = b
         }
+        if let Some((b, ctx, _)) = &self.bidi {
+            b.send(
+                "browsingContext.navigate",
+                json!({"context": ctx, "url": url, "wait": "complete"}),
+            )
+            .await
+            .map_err(|e| anyhow!("navigation to {url} failed: {e}"))?;
+            self.wait_load().await;
+            return Ok(());
+        }
         let nav = cpage::NavigateParams::builder().url(url).build().map_err(|e| anyhow!(e))?;
-        let r = self.page.execute(nav).await?;
+        let r = self.cdp()?.execute(nav).await?;
         if let Some(err) = &r.error_text {
             bail!("navigation to {url} failed: {err}")
         }
@@ -604,11 +663,11 @@ impl Tab {
         let info = self.tk("frameInfo", &[json!(spec)]).await;
         *self.eval_ctx.lock().unwrap() = saved;
         let info = info?;
-        if info.is_null() || info["cross"] != true {
+        if info.is_null() || info["cross"] != true || self.bidi.is_some() {
             return Ok(None);
         }
         let tree = self
-            .page
+            .cdp()?
             .execute(cpage::GetFrameTreeParams::default())
             .await?
             .result
@@ -629,7 +688,7 @@ impl Tab {
             return Ok(None);
         };
         let w = self
-            .page
+            .cdp()?
             .execute(
                 cpage::CreateIsolatedWorldParams::builder()
                     .frame_id(fid)
@@ -659,7 +718,23 @@ impl Tab {
         count: i64,
         button: input::MouseButton,
     ) -> Result<()> {
-        self.page.move_mouse(Point { x, y }).await?;
+        if let Some((b, ctx, _)) = &self.bidi {
+            let btn = match button {
+                input::MouseButton::Right => 2,
+                input::MouseButton::Middle => 1,
+                _ => 0,
+            };
+            let mut acts =
+                vec![json!({"type": "pointerMove", "x": x.round() as i64, "y": y.round() as i64})];
+            for _ in 0..count {
+                acts.extend([
+                    json!({"type": "pointerDown", "button": btn}),
+                    json!({"type": "pointerUp", "button": btn}),
+                ]);
+            }
+            return b.actions(ctx, json!({"type": "pointer", "id": "mouse", "parameters": {"pointerType": "mouse"}, "actions": acts})).await;
+        }
+        self.cdp()?.move_mouse(Point { x, y }).await?;
         for n in 1..=count {
             for ty in [
                 input::DispatchMouseEventType::MousePressed,
@@ -674,18 +749,56 @@ impl Tab {
                     .r#type(ty)
                     .build()
                     .map_err(|e| anyhow!(e))?;
-                self.page.execute(cmd).await?;
+                self.cdp()?.execute(cmd).await?;
             }
         }
         Ok(())
     }
+    pub async fn hover_at(&self, x: f64, y: f64) -> Result<()> {
+        match &self.bidi {
+            Some((b, ctx, _)) => {
+                let mv =
+                    json!({"type": "pointerMove", "x": x.round() as i64, "y": y.round() as i64});
+                b.actions(ctx, json!({"type": "pointer", "id": "mouse", "parameters": {"pointerType": "mouse"}, "actions": [mv]})).await
+            }
+            None => Ok(self.cdp()?.move_mouse(Point { x, y }).await.map(drop)?),
+        }
+    }
+    /// (name, value) of the cookies this tab sees.
+    pub async fn cookies(&self) -> Result<Vec<(String, String)>> {
+        if let Some((b, ctx, _)) = &self.bidi {
+            let r = b
+                .send(
+                    "storage.getCookies",
+                    json!({"partition": {"type": "context", "context": ctx}}),
+                )
+                .await?;
+            return Ok(r["cookies"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|c| (scalar_text(&c["name"]), scalar_text(&c["value"]["value"])))
+                .collect());
+        }
+        Ok(self.cdp()?.get_cookies().await?.into_iter().map(|c| (c.name, c.value)).collect())
+    }
     pub async fn insert_text(&self, s: &str) -> Result<()> {
-        self.page.execute(input::InsertTextParams::new(s)).await?;
+        if self.bidi.is_some() {
+            return self.type_text(s).await;
+        }
+        self.cdp()?.execute(input::InsertTextParams::new(s)).await?;
         Ok(())
     }
     pub async fn key(&self, combo: &str) -> Result<()> {
         let parts: Vec<&str> = combo.split('+').collect();
         let (mods, key) = parts.split_at(parts.len() - 1);
+        if let Some((b, ctx, _)) = &self.bidi {
+            let ks: Vec<String> = parts.iter().map(|k| crate::bidi::key_value(k)).collect();
+            let mut acts: Vec<Value> =
+                ks.iter().map(|k| json!({"type": "keyDown", "value": k})).collect();
+            acts.extend(ks.iter().rev().map(|k| json!({"type": "keyUp", "value": k})));
+            return b.actions(ctx, json!({"type": "key", "id": "keyboard", "actions": acts})).await;
+        }
         let m = mods
             .iter()
             .map(|m| match m.to_lowercase().as_str() {
@@ -710,17 +823,34 @@ impl Tab {
                     b = b.text(t.clone())
                 }
             }
-            self.page.execute(b.build().map_err(|e| anyhow!(e))?).await?;
+            self.cdp()?.execute(b.build().map_err(|e| anyhow!(e))?).await?;
         }
         Ok(())
     }
     pub async fn type_text(&self, s: &str) -> Result<()> {
+        if let Some((b, ctx, _)) = &self.bidi {
+            let acts: Vec<Value> = s
+                .chars()
+                .flat_map(|c| {
+                    [
+                        json!({"type": "keyDown", "value": c.to_string()}),
+                        json!({"type": "keyUp", "value": c.to_string()}),
+                    ]
+                })
+                .collect();
+            return b.actions(ctx, json!({"type": "key", "id": "keyboard", "actions": acts})).await;
+        }
         for c in s.chars() {
             self.key(&c.to_string()).await?
         }
         Ok(())
     }
     pub async fn screenshot(&self, scale: f64) -> Result<Vec<u8>> {
+        use base64::Engine;
+        if let Some((b, ctx, _)) = &self.bidi {
+            let r = b.send("browsingContext.captureScreenshot", json!({"context": ctx})).await?;
+            return Ok(base64::engine::general_purpose::STANDARD.decode(scalar_text(&r["data"]))?);
+        }
         let p =
             cpage::CaptureScreenshotParams::builder().format(cpage::CaptureScreenshotFormat::Png);
         let p = if scale < 1.0 {
@@ -735,13 +865,24 @@ impl Tab {
         } else {
             p
         };
-        let r = self.page.execute(p.build()).await?;
-        use base64::Engine;
+        let r = self.cdp()?.execute(p.build()).await?;
         Ok(base64::engine::general_purpose::STANDARD.decode(AsRef::<str>::as_ref(&r.data))?)
     }
     pub async fn set_files(&self, r: i64, files: Vec<String>) -> Result<()> {
+        if let Some((b, ctx, _)) = &self.bidi {
+            let p = json!({"expression": format!("window.__tk.refs.get({r})"), "target": {"context": ctx}, "resultOwnership": "root"});
+            let el = b.send("script.evaluate", p).await?;
+            let id = el["result"]["sharedId"].clone();
+            return b
+                .send(
+                    "input.setFiles",
+                    json!({"context": ctx, "element": {"sharedId": id}, "files": files}),
+                )
+                .await
+                .map(drop);
+        }
         let obj = self
-            .page
+            .cdp()?
             .execute(
                 runtime::EvaluateParams::builder()
                     .expression(format!("window.__tk.refs.get({r})"))
@@ -752,7 +893,7 @@ impl Tab {
             .await?;
         let id =
             obj.result.result.object_id.clone().ok_or_else(|| anyhow!("file input is detached"))?;
-        self.page
+        self.cdp()?
             .execute(
                 chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams::builder()
                     .files(files)
@@ -768,7 +909,7 @@ impl Tab {
         let w = what.trim().to_lowercase();
         match w.as_str() {
             "dark" | "light" => {
-                self.page
+                self.cdp()?
                     .execute(
                         SetEmulatedMediaParams::builder()
                             .features(vec![MediaFeature::new("prefers-color-scheme", w.clone())])
@@ -777,7 +918,7 @@ impl Tab {
                     .await?;
             }
             "reduced-motion" => {
-                self.page
+                self.cdp()?
                     .execute(
                         SetEmulatedMediaParams::builder()
                             .features(vec![MediaFeature::new("prefers-reduced-motion", "reduce")])
@@ -786,7 +927,7 @@ impl Tab {
                     .await?;
             }
             "desktop" => {
-                self.page.execute(ClearDeviceMetricsOverrideParams::default()).await?;
+                self.cdp()?.execute(ClearDeviceMetricsOverrideParams::default()).await?;
             }
             d => {
                 let (wd, h, dpr) = match d {
@@ -798,10 +939,10 @@ impl Tab {
                         (a.trim().parse()?, b.trim().parse()?, 1.0)
                     }
                 };
-                self.page
+                self.cdp()?
                     .execute(SetDeviceMetricsOverrideParams::new(wd, h, dpr, wd < 700))
                     .await?;
-                self.page.execute(SetTouchEmulationEnabledParams::new(wd < 700)).await?;
+                self.cdp()?.execute(SetTouchEmulationEnabledParams::new(wd < 700)).await?;
             }
         }
         Ok(())
@@ -815,7 +956,7 @@ impl Tab {
             .trim()
             .parse()
             .map_err(|_| anyhow!("use `throttle: cpu 4x`"))?;
-        self.page.execute(emulation::SetCpuThrottlingRateParams::new(n)).await?;
+        self.cdp()?.execute(emulation::SetCpuThrottlingRateParams::new(n)).await?;
         Ok(())
     }
     #[allow(deprecated)] // Network.emulateNetworkConditions still works; the ByRule variant needs per-URL rules
@@ -827,7 +968,7 @@ impl Tab {
             "fast 3g" => (false, 150.0, 200_000.0, 90_000.0),
             o => bail!("unknown network profile `{o}`; use slow 3g, fast 3g, offline or online"),
         };
-        self.page.execute(net::EmulateNetworkConditionsParams::new(off, lat, down, up)).await?;
+        self.cdp()?.execute(net::EmulateNetworkConditionsParams::new(off, lat, down, up)).await?;
         Ok(())
     }
 }
