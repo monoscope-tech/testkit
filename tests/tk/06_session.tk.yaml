@@ -88,9 +88,9 @@
 - exec: ${tk} check 'checkbox "Newsletter"'
 - exec: ${tk} suggest
   asserts:
-    - ok: its stdout contains "expect: checkbox \"Newsletter\" is checked"
+    - ok: 'its stdout contains "expect: checkbox \"Newsletter\" is checked"'
 - exec: ${tk} visit http://127.0.0.1:${port}/popup
 - exec: ${tk} click 'button "Accept" in dialog "Cookie consent"'
 - exec: ${tk} suggest --accept 1 --record .testkit/selftest/suggested.tk.yaml
 - exec: ${tk} session stop
-- expect: file ".testkit/selftest/suggested.tk.yaml"'s text contains "expect: no dialog"
+- expect: 'file ".testkit/selftest/suggested.tk.yaml"''s text contains "expect: no dialog"'

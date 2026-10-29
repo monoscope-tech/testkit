@@ -6,6 +6,7 @@ pub mod browser;
 pub mod cli;
 pub mod expr;
 pub mod item;
+pub mod lint;
 pub mod mcp;
 pub mod policy;
 pub mod receipt;

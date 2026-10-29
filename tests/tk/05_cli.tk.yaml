@@ -71,6 +71,21 @@
   asserts:
     - ok: its stdout contains "::error file=fixtures/fails.yaml,line=1"
 
+- claim: Lint finds problems without running anything
+- exec: ${tk} lint fixtures/lint_me.yaml
+  asserts:
+    - ok: its exit is 0
+    - ok: 'its stdout contains "lint_me.yaml:1: warning [absolute-url]"'
+    - ok: 'its stdout contains "lint_me.yaml:2: warning [fixed-sleep]"'
+    - ok: 'its stdout contains "lint_me.yaml:3: warning [yaml-quote]"'
+- exec: ${tk} lint fixtures/lint_me.yaml --strict
+  asserts:
+    - ok: its exit is 1
+- exec: ${tk} lint fixtures/parse_error.yaml
+  asserts:
+    - ok: its exit is 1
+    - ok: its stdout contains "error [parse]"
+
 - claim: Scaffolding and migration produce valid files
 - exec: rm -rf .testkit/selftest && mkdir -p .testkit/selftest && ${tk} new -f .testkit/selftest/new.tk.yaml -t browser
 - expect: file ".testkit/selftest/new.tk.yaml"

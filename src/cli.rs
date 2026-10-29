@@ -136,6 +136,13 @@ pub enum Cmd {
     },
     /// Start a claim in the session (`testkit claim end` writes the receipt)
     Claim { title: Vec<String> },
+    /// Check test files without running them (YAML traps, legacy syntax, sleeps, volatile literals)
+    Lint {
+        files: Vec<PathBuf>,
+        /// Treat warnings as errors
+        #[arg(long)]
+        strict: bool,
+    },
     /// Print the grammar cheat sheet
     Grammar,
     /// Write the grammar cheat sheet for agents (AGENTS.md / CLAUDE.md)

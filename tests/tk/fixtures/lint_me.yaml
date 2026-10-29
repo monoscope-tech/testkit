@@ -1,0 +1,3 @@
+- visit: http://localhost:3000/login
+- wait: 2s
+- expect: button "Total: 3" is visible

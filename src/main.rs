@@ -566,6 +566,47 @@ async fn run(cli: Cli) -> Result<i32> {
         Cmd::Claim { title } => {
             session_op(&o, &out, json!({"op": "claim", "title": title.join(" ")})).await
         }
+        Cmd::Lint { files, strict } => {
+            let files: Vec<PathBuf> = if files.is_empty() {
+                find_files(Path::new("."))
+            } else {
+                files
+                    .into_iter()
+                    .flat_map(|f| if f.is_dir() { find_files(&f) } else { vec![f] })
+                    .collect()
+            };
+            let (mut errors, mut warnings) = (0, 0);
+            for f in &files {
+                for x in testkit::lint::lint(&std::fs::read_to_string(f)?) {
+                    if out == "github" {
+                        println!(
+                            "::{} file={},line={},title={}::{}",
+                            if x.error { "error" } else { "warning" },
+                            f.display(),
+                            x.line,
+                            x.rule,
+                            x.message.replace('\n', "%0A")
+                        );
+                    } else {
+                        println!(
+                            "{}:{}: {} [{}] {}",
+                            f.display(),
+                            x.line,
+                            if x.error { "error" } else { "warning" },
+                            x.rule,
+                            x.message.lines().next().unwrap_or("")
+                        );
+                    }
+                    if x.error {
+                        errors += 1
+                    } else {
+                        warnings += 1
+                    }
+                }
+            }
+            println!("{} file(s): {errors} error(s), {warnings} warning(s)", files.len());
+            Ok(if errors > 0 || (strict && warnings > 0) { 1 } else { 0 })
+        }
         Cmd::Grammar => {
             print!("{}", testkit::mcp::GRAMMAR);
             Ok(0)

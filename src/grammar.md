@@ -26,6 +26,12 @@ Structured data (objects, lists, aria trees) goes in sibling keys, never inside 
 - Structural: `expect: table "Orders"` + `matches:` with a partial aria snapshot; `expect: screen` + `matches:` with lines; `expect: json` + `matches: {…}`; `matches: golden/file.txt`
 - Mixing `and`/`or` needs parentheses. `it` = the previous step's result. `${var}` / `${env.X}` interpolate.
 
+## Words with two meanings (decided by position)
+- `status` alone is the HTTP status of the last API step; `status "Ready"` is the ARIA `status` role.
+- `text "Welcome"` is a locator; `the text of <h1/>` / `its text` is a property.
+- `matches` is a regex match when the right side is a string or `/regex/`, and a structural match when it is a locator.
+- `testkit lint` flags YAML traps (`: ` or ` #` inside a value), fixed sleeps, volatile literals, legacy `{{x}}` and brittle CSS.
+
 ## Example
 ```yaml
 - visit: /login

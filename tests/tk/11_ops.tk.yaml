@@ -26,7 +26,7 @@
     - ok: its stdout contains "3 passed"
 
 - claim: Steps can be piped in and claims proven from the CLI
-- exec: printf -- '- exec: echo piped\n- expect: its stdout is "piped"\n' | ${tk} --session ops run -
+- exec: 'printf -- ''- exec: echo piped\n- expect: its stdout is "piped"\n'' | ${tk} --session ops run -'
   asserts:
     - ok: its exit is 0
     - ok: its stdout contains "✓ expect"
@@ -60,7 +60,7 @@
 - expect: file ".testkit/selftest/out.txt"
   matches: .testkit/selftest/out.golden
 - exec: echo v2 > .testkit/selftest/out.txt
-- exec: printf -- '- expect: file "out.txt"\n  matches: out.golden\n  timeout: 0s\n' > .testkit/selftest/golden.yaml && ${tk} test .testkit/selftest/golden.yaml
+- exec: 'printf -- ''- expect: file "out.txt"\n  matches: out.golden\n  timeout: 0s\n'' > .testkit/selftest/golden.yaml && ${tk} test .testkit/selftest/golden.yaml'
   asserts:
     - ok: its exit is 1
     - ok: its stdout contains "+ v2"

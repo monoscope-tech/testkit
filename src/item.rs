@@ -122,20 +122,30 @@ impl Item {
 /// Parses a test file. YAML traps that agents and people hit constantly (a `: ` or ` #` inside an
 /// unquoted step value) are repaired by quoting that value, with a warning naming the line.
 pub fn parse_yaml(src: &str) -> Result<Vec<Item>> {
+    let (items, quoted) = parse_yaml_quoted(src)?;
+    for l in quoted {
+        eprintln!("⚠ line {l}: quoted the value because it contains `: ` or ` #` (YAML syntax); write it as '…' to silence this");
+    }
+    Ok(items)
+}
+
+/// Like `parse_yaml`, also returning the lines whose values had to be auto-quoted.
+pub fn parse_yaml_quoted(src: &str) -> Result<(Vec<Item>, Vec<usize>)> {
     let mut src = src.to_string();
+    let mut quoted = vec![];
     for _ in 0..50 {
         match parse_once(&src) {
-            Ok(items) => return Ok(items),
+            Ok(items) => return Ok((items, quoted)),
             Err((line, e)) => match line.and_then(|l| requote(&src, l)) {
                 Some(fixed) => {
-                    eprintln!("⚠ line {}: quoted the value because it contains `: ` or ` #` (YAML syntax); write it as '…' to silence this", line.unwrap_or(0));
+                    quoted.push(line.unwrap_or(0));
                     src = fixed
                 }
                 None => return Err(e),
             },
         }
     }
-    parse_once(&src).map_err(|e| e.1)
+    parse_once(&src).map(|i| (i, quoted)).map_err(|e| e.1)
 }
 
 /// Wraps the value of `- key: value` / `key: value` on line `n` (1-based) in single quotes.
