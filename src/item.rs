@@ -22,7 +22,7 @@ pub const VERBS: &[&str] = &[
     "focus", "fill", "select", "upload", "type", "press", "drag", "wait", "expect", "extract",
     "shot", "snapshot", "route", "unroute", "exec", "spawn", "enter", "signal", "resize", "trace",
     "profile", "heap", "coverage", "throttle", "network", "emulate", "mark", "back", "reload",
-    "act",
+    "act", "launch", "swipe", "home", "deeplink",
 ];
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -273,7 +273,9 @@ pub fn parse_item(v: Value, line: usize) -> Result<Item> {
         map.remove(&verb).unwrap_or_default()
     };
     let text = scalar_text(&raw);
-    let parsed = if ["meta", "claim", "act"].contains(&verb.as_str()) {
+    let parsed = if ["meta", "claim", "act", "launch", "swipe", "home", "deeplink"]
+        .contains(&verb.as_str())
+    {
         Args::Raw(text.clone())
     } else {
         args(&verb, &text).map_err(|e| anyhow!("line {line}: `{verb}: {text}`\n{e}"))?

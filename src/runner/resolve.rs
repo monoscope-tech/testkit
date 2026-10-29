@@ -479,6 +479,9 @@ impl Runner {
                         }
                     })
                 });
+                if sess.is_none() && self.last == Surf::Mobile {
+                    return Ok(Some(Value::Array(self.device_find(l)?)));
+                }
                 let term =
                     sess.as_ref().map_or(self.surface("expect", Some(l)) == Surf::Term, |s| {
                         self.ptys.contains_key(s)
@@ -775,9 +778,15 @@ pub fn load_baselines() -> Map<String, Value> {
         .unwrap_or_default()
 }
 
-pub(crate) fn name_match(n: &Name, s: &str) -> bool {
+pub fn name_match(n: &Name, s: &str) -> bool {
+    // typographic dashes and non-breaking spaces compare as their ASCII forms
+    let fold = |s: &str| {
+        s.to_lowercase()
+            .replace(['\u{2010}', '\u{2011}', '\u{2012}', '\u{2013}'], "-")
+            .replace('\u{a0}', " ")
+    };
     match n {
-        Name::Sub(x) => s.to_lowercase().contains(&x.to_lowercase()),
+        Name::Sub(x) => fold(s).contains(&fold(x)),
         Name::Exact(x) => s.trim() == x.trim(),
         Name::Re(r, f) => regex::RegexBuilder::new(r)
             .case_insensitive(f.contains('i'))

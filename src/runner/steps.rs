@@ -10,6 +10,15 @@ impl Runner {
             self.last = Surf::Http;
             return self.http(item, r).await;
         }
+        let loc = match &item.args {
+            Args::Loc(l) | Args::LocVal(l, _) => Some(l),
+            _ => None,
+        };
+        if self.surface(v, loc) == Surf::Mobile
+            && (MOBILE_VERBS.contains(&v) || MOBILE_SHARED.contains(&v))
+        {
+            return self.device_exec(item, timeout).await;
+        }
         match (&item.args, v) {
             (Args::Tmpl(_), "visit") => {
                 let url = self.url(&item.text)?;
@@ -727,6 +736,10 @@ impl Runner {
         };
         let path = PathBuf::from(".testkit/shots").join(path);
         std::fs::create_dir_all(path.parent().unwrap_or(&PathBuf::from("."))).ok();
+        if self.last == Surf::Mobile {
+            std::fs::write(&path, self.device()?.screenshot()?)?;
+            return Ok(json!({"file": std::fs::canonicalize(&path)?}));
+        }
         if self.last == Surf::Term && loc.is_none() {
             let s = self.pty(None)?.screen();
             let p = path.with_extension("txt");
@@ -743,6 +756,9 @@ impl Runner {
         Ok(json!({"file": std::fs::canonicalize(&path)?}))
     }
     pub async fn snapshot(&mut self, loc: Option<&Locator>, all: bool) -> Result<String> {
+        if self.last == Surf::Mobile {
+            return self.device_snapshot(loc);
+        }
         if self.last == Surf::Term
             || loc.is_some_and(|l| self.surface("snapshot", Some(l)) == Surf::Term)
         {
@@ -828,7 +844,7 @@ impl Runner {
     async fn act_context(&mut self) -> String {
         let vars: Vec<String> = self.vars.keys().filter(|k| !k.starts_with('_')).cloned().collect();
         let base = self.cfg.base_url.clone().unwrap_or_default();
-        let state = if !self.tabs.is_empty() || !self.ptys.is_empty() {
+        let state = if !self.tabs.is_empty() || !self.ptys.is_empty() || self.device.is_some() {
             self.snapshot(None, false).await.unwrap_or_else(|e| e.to_string())
         } else {
             "nothing is open yet".into()

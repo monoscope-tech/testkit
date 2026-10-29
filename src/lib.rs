@@ -9,6 +9,7 @@ pub mod expr;
 pub mod item;
 pub mod lint;
 pub mod mcp;
+pub mod mobile;
 pub mod policy;
 pub mod receipt;
 pub mod record;

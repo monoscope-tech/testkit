@@ -1,0 +1,17 @@
+# Android over adb: the web grammar on a device. Runs only when `adb devices` lists one (tests/android.rs).
+- claim: Settings opens and its rows read as buttons, with switches named after their row
+- launch: com.android.settings
+- tap: button "Network & internet"
+- expect: switch "Airplane mode" is not checked
+- expect: button "Internet" is enabled
+- back:
+- expect: text "Battery" is visible
+
+- claim: Search finds settings by typed text
+- tap: button "Search settings"
+- type: wifi
+- expect: the value of field "Search" is "wifi"
+- expect: switch "Wi-Fi" is checked
+- expect: button "Wi-Fi calling" is disabled
+- shot: android-search.png
+- expect: its file ends with "android-search.png"

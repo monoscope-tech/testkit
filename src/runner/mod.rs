@@ -1,5 +1,6 @@
 //! Executes items across surfaces: sessions, observation windows, guard, claims and step reports.
 //! Verbs live in `steps`, expressions/waits/subjects in `resolve`, step reports and the guard in `report`.
+mod device;
 mod report;
 mod resolve;
 mod steps;
@@ -16,7 +17,7 @@ use crate::term::{self, Pty};
 use anyhow::{anyhow, bail, Result};
 pub(crate) use report::*;
 pub use report::{path_of, short};
-pub use resolve::{aria_match, load_baselines, shape_match};
+pub use resolve::{aria_match, load_baselines, name_match, shape_match};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -116,6 +117,7 @@ pub enum Surf {
     Http,
     Browser,
     Term,
+    Mobile,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -162,6 +164,7 @@ pub struct Runner {
     trace_buf: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
     /// Accumulated coverage: script url → used-byte bitmap; css rules → used.
     pub(crate) coverage: Option<Coverage>,
+    pub(crate) device: Option<crate::mobile::Device>,
 }
 
 const BROWSER_VERBS: &[&str] = &[
@@ -173,6 +176,10 @@ const BROWSER_VERBS: &[&str] = &[
 const PASSIVE: &[&str] =
     &["expect", "wait", "extract", "snapshot", "shot", "mark", "claim", "meta"];
 const TERM_VERBS: &[&str] = &["exec", "spawn", "enter", "signal", "resize"];
+const MOBILE_VERBS: &[&str] = &["launch", "swipe", "home", "deeplink"];
+/// Verbs that act on the device once a `launch:` made mobile the current surface.
+const MOBILE_SHARED: &[&str] =
+    &["click", "tap", "dblclick", "check", "uncheck", "focus", "fill", "type", "press", "back"];
 
 fn fail(msg: impl Into<String>) -> anyhow::Error {
     anyhow!(msg.into())
@@ -223,6 +230,7 @@ impl Runner {
             on_step: None,
             trace_buf: None,
             coverage: None,
+            device: None,
         }
     }
 
@@ -425,6 +433,11 @@ impl Runner {
     fn surface(&self, verb: &str, loc: Option<&Locator>) -> Surf {
         if HTTP.contains(&verb) {
             return Surf::Http;
+        }
+        if MOBILE_VERBS.contains(&verb)
+            || self.last == Surf::Mobile && MOBILE_SHARED.contains(&verb)
+        {
+            return Surf::Mobile;
         }
         if BROWSER_VERBS.contains(&verb) {
             return Surf::Browser;
@@ -666,6 +679,9 @@ impl Runner {
             if self.cfg.frames && self.tabs.contains_key(&self.cur_b) {
                 r.frame = self.tabs[&self.cur_b].screenshot(0.5).await.ok()
             }
+        }
+        if self.last == Surf::Mobile && self.cfg.frames {
+            r.frame = self.device.as_ref().and_then(|d| d.screenshot().ok())
         }
         if item.verb == "exec"
             && (r.step_error.is_some() || r.assert_results.iter().any(|a| !matches!(a, Ok(true))))
