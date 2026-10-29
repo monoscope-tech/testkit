@@ -580,9 +580,7 @@ impl Tab {
         count: i64,
         button: input::MouseButton,
     ) -> Result<()> {
-        let t = Instant::now();
         self.page.move_mouse(Point { x, y }).await?;
-        log::debug!(target: "testkit", "mouse moved {}ms", t.elapsed().as_millis());
         for n in 1..=count {
             for ty in [
                 input::DispatchMouseEventType::MousePressed,
@@ -598,7 +596,6 @@ impl Tab {
                     .build()
                     .map_err(|e| anyhow!(e))?;
                 self.page.execute(cmd).await?;
-                log::debug!(target: "testkit", "mouse {n} event {}ms", t.elapsed().as_millis());
             }
         }
         Ok(())
