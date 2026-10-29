@@ -815,7 +815,8 @@ impl Runner {
                     (crate::act::resolve(&goal, &ctx, error.as_deref()).await?, "model")
                 }
             };
-            let items = match crate::act::steps(&reply) {
+            let shell = self.policy().exec.as_deref() == Some("allow");
+            let items = match crate::act::steps(&reply, shell) {
                 Ok(i) => i,
                 Err(e) => {
                     error = Some(format!("{e}\nreply was:\n{reply}"));
@@ -829,6 +830,7 @@ impl Runner {
             if let Some(f) = sub.iter().find(|s| !s.ok()) {
                 error = Some(format!("step `{}` failed:\n{}", f.line_text(), f.step_log.trim()));
                 self.results.truncate(start);
+                self.claims.iter_mut().for_each(|c| c.steps.retain(|i| *i < start));
                 continue;
             }
             for rr in &mut self.results[start..] {

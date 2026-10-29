@@ -1,4 +1,5 @@
 - visit: /login
+- claim: An instruction signs the admin in
 - act: sign in as the admin
 - expect: its steps[2] is "click button exactly \"Sign in\""
 - expect: the path of page is "/dashboard"

@@ -61,7 +61,7 @@ async fn handle(r: &mut Runner, req: &Value) -> Result<Value> {
                 if let (Some(path), true) = (s("record"), res.ok()) {
                     let path = Path::new(&path);
                     if item.verb == "act" {
-                        let subs = crate::act::steps(&scalar_text(&res.it["yaml"]))?;
+                        let subs = crate::act::steps(&scalar_text(&res.it["yaml"]), true)?;
                         let rs = r.results[r.results.len() - 1 - subs.len()..].to_vec();
                         for (sub, sr) in subs.iter().zip(rs) {
                             notes.extend(record::record(r, sub, &sr, path).await?);

@@ -12,7 +12,7 @@ Structured data (objects, lists, aria trees) goes in sibling keys, never inside 
 
 ## Verbs
 - Browser: `visit: /login` · `click:` · `dblclick:` · `hover:` · `check:` · `uncheck:` · `fill: field "Email" with "a@b.co"` · `select: field "Plan" with "Pro"` · `upload: field "Avatar" with "me.png"` · `type: "abc"` · `press: Enter` / `ctrl+a` / `down 3 times` · `drag: text "Card" to region "Done"` · `back:` · `reload:`
-- Firefox: `browser: firefox` (testkit.yaml or `meta:`), `--browser firefox` or `TESTKIT_BROWSER=firefox` runs the same steps over WebDriver BiDi; `route`, `trace`/`profile`/`heap`/`coverage`, `throttle`/`network`/`emulate`, vitals, popups and cross-origin frames need Chromium (E_UNSUPPORTED)
+- Firefox: `browser: firefox` (testkit.yaml or `meta:`), `--browser firefox` or `TESTKIT_BROWSER=firefox` runs the same steps over WebDriver BiDi; `route`, `trace`/`profile`/`heap`/`coverage`, `throttle`/`network`/`emulate`, vitals, popups and cross-origin frames need Chromium (E_UNSUPPORTED); `deterministic` is skipped
 - API: `GET: /api/orders` (with `headers:`, `json:`, `params:`, `cookies: from default`)
 - Terminal: `exec: cargo --version` (one-shot) · `spawn: npm run dev` (+ `session:`, `ready: for text /ready/ or 60s`, `size: 120x40`, `prompt: /\$ $/`) · `enter: "help"` · `signal: SIGTERM to server` · `resize: 80x24`
 - Android (adb): `launch: com.acme` (`launch:` alone attaches to the foreground app) · `tap:` `fill:` `type:` `press:` `back:` `check:` as on the web · `swipe: up` / `swipe: left on list "Photos"` · `home:` · `deeplink: acme://orders/1` · `testid "login"` matches a resource-id · crashes fail the step

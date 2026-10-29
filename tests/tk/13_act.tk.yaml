@@ -4,8 +4,8 @@
   exports: [port]
 - exec: rm -rf .testkit/act ${rec}; ${tk} --session act session stop
 
-- claim: An instruction resolves to steps, and a broken reply is retried with its error
-- exec: TESTKIT_ACT_CMD="python3 fixtures/act_resolver.py" ${tk} --base-url ${url} test fixtures/act.yaml
+- claim: An instruction resolves to steps; a broken reply and a failing step are retried with the error
+- exec: TESTKIT_ACT_CMD="python3 fixtures/act_resolver.py" ${tk} --base-url ${url} prove fixtures/act.yaml
   asserts:
     - ok: its exit is 0
 - expect: the length of (the files in ".testkit/act/") is 1

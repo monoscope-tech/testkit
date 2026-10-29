@@ -11,26 +11,33 @@ const RULES: &str =
 Reply with only a YAML list of steps: no prose, no code fences.
 - Use locators that appear in the snapshot (`button \"Save\"`, `field \"Email\"`), never `@e` refs.
 - Use `${name}` for the listed variables and `${env.NAME}` for secrets you were not given.
-- Never use `act`, `claim`, `meta` or `call`.
+- Never use `act`, `claim`, `meta`, `call`, `exec` or `spawn`.
 - End with an `expect:` that proves the instruction took effect, when the outcome is visible.
 - If a previous attempt failed, fix it using the error and the new snapshot.";
 
-/// Parses a resolver reply into steps, tolerating code fences.
+/// Parses a resolver reply into steps, tolerating code fences. Shell steps need `shell`
+/// (`policy.exec: allow`), since the model wrote them.
 ///
 /// ```
 /// use testkit::act::steps;
-/// let s = steps("```yaml\n- click: button \"Save\"\n- expect: alert \"Saved\" is visible\n```").unwrap();
+/// let s = steps("```yaml\n- click: button \"Save\"\n- expect: alert \"Saved\" is visible\n```", false).unwrap();
 /// assert_eq!(s.len(), 2);
-/// assert!(steps("- act: do it again").unwrap_err().to_string().contains("cannot use `act`"));
-/// assert!(steps("").is_err());
+/// assert!(steps("- act: do it again", false).unwrap_err().to_string().contains("cannot use `act`"));
+/// assert!(steps("- exec: rm -rf /", false).is_err());
+/// assert!(steps("- exec: ls", true).is_ok());
+/// assert!(steps("", false).is_err());
 /// ```
-pub fn steps(reply: &str) -> Result<Vec<Item>> {
+pub fn steps(reply: &str, shell: bool) -> Result<Vec<Item>> {
     let y = reply.trim().trim_start_matches("```yaml").trim_start_matches("```");
     let items = parse_yaml(y.trim_end_matches("```"))?;
-    if let Some(i) =
-        items.iter().find(|i| ["act", "claim", "meta", "call"].contains(&i.verb.as_str()))
-    {
-        bail!("resolved steps cannot use `{}`", i.verb)
+    let banned: &[&str] = if shell {
+        &["act", "claim", "meta", "call"]
+    } else {
+        &["act", "claim", "meta", "call", "exec", "spawn"]
+    };
+    if let Some(i) = items.iter().find(|i| banned.contains(&i.verb.as_str())) {
+        let hint = if shell { "" } else { " (set policy.exec: allow to permit shell steps)" };
+        bail!("resolved steps cannot use `{}`{hint}", i.verb)
     }
     if items.is_empty() {
         bail!("the resolver returned no steps")
