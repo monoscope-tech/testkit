@@ -40,9 +40,7 @@ pub fn lint(src: &str) -> Vec<Finding> {
     let mut out = vec![];
     for it in &items {
         let (l, t) = (it.line, it.text.as_str());
-        if (it.verb == "visit" || HTTP.contains(&it.verb.as_str()))
-            && local.is_match(t)
-        {
+        if (it.verb == "visit" || HTTP.contains(&it.verb.as_str())) && local.is_match(t) {
             out.push(w(l, "absolute-url", format!("`{t}` hard-codes a local server; use a relative path with `meta: {{ base_url: … }}` or --base-url")));
         }
         if it.verb == "wait" && sleep.is_match(t) {

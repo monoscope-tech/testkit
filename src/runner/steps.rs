@@ -27,6 +27,7 @@ impl Runner {
                 }
                 Ok(t.page_state().await)
             }
+            (_, "act") => self.act_steps(item).await,
             (_, "back" | "reload") => {
                 self.last = Surf::Browser;
                 let t = self.tab(None).await?;
@@ -773,6 +774,66 @@ impl Runner {
             scalar_text(&page["url"]),
             scalar_text(&v["yaml"])
         ))
+    }
+
+    /// `act: <instruction>`: resolve to concrete steps (cached per instruction and page path), run them,
+    /// and re-resolve with the failure when they don't work.
+    pub(crate) async fn act_steps(&mut self, item: &Item) -> Result<Value> {
+        let goal = self.render(&item.text)?;
+        let url = match self.tabs.get(&self.cur_b) {
+            Some(t) => t.url().await,
+            None => String::new(),
+        };
+        let path = url.split_once("://").map_or("", |(_, r)| r.find('/').map_or("/", |i| &r[i..]));
+        let path = path.split(['?', '#']).next().unwrap_or("");
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(format!("{goal}\n{path}").as_bytes());
+        let cache =
+            PathBuf::from(".testkit/act").join(format!("{}.yaml", &format!("{digest:x}")[..16]));
+        let mut cached = std::fs::read_to_string(&cache).ok();
+        let mut error: Option<String> = None;
+        for _ in 0..3 {
+            let (reply, by) = match cached.take() {
+                Some(y) => (y, "cache"),
+                None => {
+                    let ctx = self.act_context().await;
+                    (crate::act::resolve(&goal, &ctx, error.as_deref()).await?, "model")
+                }
+            };
+            let items = match crate::act::steps(&reply) {
+                Ok(i) => i,
+                Err(e) => {
+                    error = Some(format!("{e}\nreply was:\n{reply}"));
+                    continue;
+                }
+            };
+            let start = self.results.len();
+            self.depth += 1;
+            let sub = Box::pin(self.run_items(&items)).await;
+            self.depth -= 1;
+            if let Some(f) = sub.iter().find(|s| !s.ok()) {
+                error = Some(format!("step `{}` failed:\n{}", f.line_text(), f.step_log.trim()));
+                self.results.truncate(start);
+                continue;
+            }
+            for rr in &mut self.results[start..] {
+                rr.step_name = Some(format!("act › {}", rr.line_text()))
+            }
+            std::fs::create_dir_all(".testkit/act")?;
+            std::fs::write(&cache, &reply)?;
+            let lines: Vec<String> = sub.iter().map(|s| s.line_text()).collect();
+            return Ok(json!({"steps": lines, "yaml": reply, "by": by}));
+        }
+        bail!("E_ACT could not carry out `{goal}`; last attempt: {}", error.unwrap_or_default())
+    }
+    async fn act_context(&mut self) -> String {
+        let vars: Vec<String> = self.vars.keys().filter(|k| !k.starts_with('_')).cloned().collect();
+        let base = self.cfg.base_url.clone().unwrap_or_default();
+        let state = if !self.tabs.is_empty() || !self.ptys.is_empty() {
+            self.snapshot(None, false).await.unwrap_or_else(|e| e.to_string())
+        } else {
+            "nothing is open yet".into()
+        };
+        format!("base_url: {base}\nvariables: {vars:?}\n{state}")
     }
 
     pub(crate) async fn call(&mut self, item: &Item, r: &mut StepResult) -> Result<Value> {

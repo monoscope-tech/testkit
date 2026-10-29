@@ -15,6 +15,7 @@ Structured data (objects, lists, aria trees) goes in sibling keys, never inside 
 - API: `GET: /api/orders` (with `headers:`, `json:`, `params:`, `cookies: from default`)
 - Terminal: `exec: cargo --version` (one-shot) · `spawn: npm run dev` (+ `session:`, `ready: for text /ready/ or 60s`, `size: 120x40`, `prompt: /\$ $/`) · `enter: "help"` · `signal: SIGTERM to server` · `resize: 80x24`
 - Flow: `wait: for request "POST /api/orders" or 5s` · `wait: <cond>` · `extract: its json's id into order_id` · `call: flows/login.tk.yaml` (+ `with:`, `exports:`) · `route: POST /api/orders` (+ `respond:`/`modify:`/`abort:`/`delay:`)
+- Intent: `act: sign in as the admin` → Claude resolves it to concrete steps from the snapshot, runs them (retrying with the error), caches them in `.testkit/act/` and records the concrete steps (`TESTKIT_ACT_CMD` swaps in another resolver)
 - Proof: `claim: Users can create orders` · `shot: home.png` · `snapshot: main` · `measure: true` on an action
 - Devtools: `trace: start` / `trace: stop into checkout` · `profile:` · `throttle: cpu 4x` · `network: slow 3g` · `emulate: iPhone 15 | dark | reduced-motion`
 

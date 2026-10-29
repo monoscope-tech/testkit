@@ -1,0 +1,27 @@
+# Natural-language act: resolved to concrete steps, retried with the error, cached, recorded as concrete steps.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN}", url: "http://127.0.0.1:${port}", rec: .testkit/selftest/act.tk.yaml }
+- call: flows/app.yaml
+  exports: [port]
+- exec: rm -rf .testkit/act ${rec}; ${tk} --session act session stop
+
+- claim: An instruction resolves to steps, and a broken reply is retried with its error
+- exec: TESTKIT_ACT_CMD="python3 fixtures/act_resolver.py" ${tk} --base-url ${url} test fixtures/act.yaml
+  asserts:
+    - ok: its exit is 0
+- expect: the length of (the files in ".testkit/act/") is 1
+
+- claim: Cached steps replay without calling the resolver
+- exec: TESTKIT_ACT_CMD=false ${tk} --base-url ${url} test fixtures/act.yaml
+  asserts:
+    - ok: its exit is 0
+
+- claim: Recording an act writes the concrete steps, with no secrets
+- exec: rm -rf .testkit/act; TESTKIT_ACT_CMD="python3 fixtures/act_resolver.py" ${tk} --session act visit ${url}/login --record ${rec}
+- exec: ${tk} --session act act sign in as the admin --record ${rec}
+  asserts:
+    - ok: its exit is 0
+    - ok: 'its stdout contains "recorded `act: sign in as the admin` as 4 concrete steps"'
+- expect: file "${rec}"'s text contains "button exactly \"Sign in\""
+- expect: file "${rec}"'s text contains "$${env.PASSWORD}"
+- expect: file "${rec}"'s text does not contain "- act"
+- exec: ${tk} --session act session stop

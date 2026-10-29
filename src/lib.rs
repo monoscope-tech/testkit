@@ -1,6 +1,7 @@
 // src/lib.rs
 
 // Declare modules in the order needed by sibling modules.
+pub mod act;
 pub mod base_request;
 pub mod browser;
 pub mod cli;
