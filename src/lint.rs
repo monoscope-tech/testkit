@@ -35,15 +35,17 @@ pub fn lint(src: &str) -> Vec<Finding> {
     };
     let volatile = Regex::new(r"\d{4}-\d{2}-\d{2}|\b\d{1,2}:\d{2}\b|\b\d{4,}\b").unwrap();
     let lit = Regex::new(r#""((?:[^"\\]|\\.)*)""#).unwrap();
+    let local = Regex::new(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?").unwrap();
+    let sleep = Regex::new(r"^\d").unwrap();
     let mut out = vec![];
     for it in &items {
         let (l, t) = (it.line, it.text.as_str());
         if (it.verb == "visit" || HTTP.contains(&it.verb.as_str()))
-            && Regex::new(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?").unwrap().is_match(t)
+            && local.is_match(t)
         {
             out.push(w(l, "absolute-url", format!("`{t}` hard-codes a local server; use a relative path with `meta: {{ base_url: … }}` or --base-url")));
         }
-        if it.verb == "wait" && Regex::new(r"^\d").unwrap().is_match(t) {
+        if it.verb == "wait" && sleep.is_match(t) {
             out.push(w(l, "fixed-sleep", format!("`wait: {t}` is a fixed sleep; prefer `wait: for …` or an `expect:` (they retry)")));
         }
         for c in lit.captures_iter(t) {
