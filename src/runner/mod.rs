@@ -40,6 +40,7 @@ pub struct Config {
     pub deterministic: bool,
     pub attach: Option<String>,
     pub secrets: Vec<String>,
+    pub policy: Option<crate::policy::Policy>,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -58,6 +59,7 @@ impl Default for Config {
             col_id: None,
             deterministic: false,
             attach: None,
+            policy: None,
             secrets: vec![],
         }
     }
@@ -142,7 +144,9 @@ pub struct Runner {
     pub last: Surf,
     routes: Vec<Route>,
     front: String,
-    api_reqs: Vec<Req>,
+    pub(crate) api_reqs: Vec<Req>,
+    /// URL before the last action, so `wait: for navigation` sees navigations that action caused.
+    pub(crate) nav_from: String,
     prev: Marks,
     cur: Marks,
     pub claims: Vec<Claim>,
@@ -153,12 +157,14 @@ pub struct Runner {
     depth: usize,
     pub on_step: Option<OnStep>,
     trace_buf: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
+    /// Accumulated coverage: script url → used-byte bitmap; css rules → used.
+    pub(crate) coverage: Option<Coverage>,
 }
 
 const BROWSER_VERBS: &[&str] = &[
     "visit", "click", "dblclick", "hover", "check", "uncheck", "tap", "focus", "fill", "select",
-    "upload", "drag", "route", "unroute", "trace", "profile", "heap", "throttle", "network",
-    "emulate", "back", "reload",
+    "upload", "drag", "route", "unroute", "trace", "profile", "heap", "coverage", "throttle",
+    "network", "emulate", "back", "reload",
 ];
 /// Steps that observe without acting; they don't move the "since the last action" window.
 const PASSIVE: &[&str] =
@@ -202,6 +208,7 @@ impl Runner {
             routes: vec![],
             front: "default".into(),
             api_reqs: vec![],
+            nav_from: String::new(),
             prev: Marks::default(),
             cur: Marks::default(),
             claims: vec![],
@@ -212,6 +219,7 @@ impl Runner {
             depth: 0,
             on_step: None,
             trace_buf: None,
+            coverage: None,
         }
     }
 
@@ -392,6 +400,7 @@ impl Runner {
                         .unwrap_or_else(|| vec![scalar_text(v)])
                 }
                 "deterministic" => self.cfg.deterministic = v.as_bool().unwrap_or(false),
+                "policy" => self.cfg.policy = serde_json::from_value(v.clone()).ok(),
                 "headed" => self.cfg.headed = v.as_bool().unwrap_or(false),
                 "secret" | "secrets" => self.cfg.secrets.extend(
                     v.as_array()
@@ -473,6 +482,9 @@ impl Runner {
     }
 
     // ---------- sessions ----------
+    pub(crate) fn policy(&self) -> crate::policy::Policy {
+        self.cfg.policy.clone().unwrap_or_default()
+    }
     /// Use a Chrome shared with other runners instead of launching one.
     pub fn share(&mut self, c: SharedChrome) {
         self.shared = Some(c)
@@ -574,7 +586,11 @@ impl Runner {
         }
         self.cur = self.marks();
         if !PASSIVE.contains(&item.verb.as_str()) {
-            self.prev = self.cur.clone()
+            self.prev = self.cur.clone();
+            self.nav_from = match self.tabs.get(&self.cur_b) {
+                Some(t) => t.url().await,
+                None => String::new(),
+            };
         }
         let mut r = StepResult {
             verb: item.verb.clone(),
@@ -617,7 +633,7 @@ impl Runner {
         }
         let keep_it = matches!(
             item.verb.as_str(),
-            "expect" | "claim" | "mark" | "route" | "unroute" | "snapshot" | "shot"
+            "expect" | "claim" | "mark" | "route" | "unroute" | "snapshot"
         );
         let prev_it = self.it.clone();
         match outcome {
@@ -780,6 +796,22 @@ impl Runner {
         }
     }
 }
+#[derive(Default)]
+pub(crate) struct Coverage {
+    pub js: HashMap<String, Vec<bool>>,
+    pub css: HashMap<(String, i64, i64), bool>,
+    /// stylesheet id → length, from CSS.styleSheetAdded (rule usage only lists matched rules)
+    pub sheets: std::sync::Arc<std::sync::Mutex<HashMap<String, f64>>>,
+    pub listener: Option<tokio::task::JoinHandle<()>>,
+}
+impl Drop for Coverage {
+    fn drop(&mut self) {
+        if let Some(h) = self.listener.take() {
+            h.abort()
+        }
+    }
+}
+
 /// While alive, scripts on the tab run inside a cross-origin frame's isolated world.
 pub(crate) struct FrameGuard<'a>(&'a Tab);
 impl Drop for FrameGuard<'_> {

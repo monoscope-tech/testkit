@@ -7,6 +7,7 @@ pub mod cli;
 pub mod expr;
 pub mod item;
 pub mod mcp;
+pub mod policy;
 pub mod receipt;
 pub mod record;
 pub mod report;

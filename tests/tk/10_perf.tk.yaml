@@ -42,3 +42,12 @@
 - visit: /a11y
 - expect: the length of a11y violations is greater than 2
 - expect: (a11y violations mapped to its rule) contains "image-alt"
+
+- claim: Unused JavaScript and CSS are measured
+- coverage: start
+- visit: /widgets
+- click: button "More"
+- expect: the unused_js of page is between 0 and 100
+- expect: the unused_css of page is greater than 0
+- coverage: stop
+- expect: its js_bytes is greater than 0

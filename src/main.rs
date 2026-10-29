@@ -88,6 +88,9 @@ fn config(o: &RunOpts) -> Config {
         if let Some(v) = l["ignore"].as_array() {
             c.ignore = v.iter().map(scalar_text).collect()
         }
+        if l.get("policy").is_some_and(|p| p.is_object()) {
+            c.policy = serde_json::from_value(l["policy"].clone()).ok()
+        }
         if let Some(v) = l["secret"].as_array().or(l["secrets"].as_array()) {
             c.secrets = v.iter().map(scalar_text).collect()
         }
@@ -423,7 +426,7 @@ async fn run(cli: Cli) -> Result<i32> {
             }
             Ok(code)
         }
-        Cmd::Prove { file, no_video, open } => {
+        Cmd::Prove { file, no_video, open, sign } => {
             let mut cfg = config(&o);
             cfg.frames = !no_video;
             let mut r = Runner::new(cfg);
@@ -432,6 +435,9 @@ async fn run(cli: Cli) -> Result<i32> {
             r.run_file(&file).await?;
             let dir = receipt::write(&mut r, &file.to_string_lossy(), t0, false).await?;
             r.close().await;
+            if let Some(key) = sign {
+                println!("signed by {}", receipt::sign(&dir, &key)?);
+            }
             let md = std::fs::read_to_string(dir.join("receipt.md"))?;
             println!("\n{md}\nreceipt → {}", dir.join("receipt.html").display());
             if open {
@@ -449,6 +455,16 @@ async fn run(cli: Cli) -> Result<i32> {
                 let bad = receipt::verify(&dir)?;
                 if bad.is_empty() {
                     println!("✓ verified {}: every artifact matches the manifest and the chain is intact", dir.display());
+                    match receipt::check_signature(&dir) {
+                        Ok(Some(who)) => println!("✓ signature valid: {who}"),
+                        Ok(None) => println!(
+                            "  (unsigned; sign with `testkit prove --sign ~/.ssh/id_ed25519`)"
+                        ),
+                        Err(e) => {
+                            println!("✗ signature invalid: {e}");
+                            return Ok(1);
+                        }
+                    }
                     return Ok(0);
                 }
                 println!(
@@ -590,11 +606,11 @@ async fn run(cli: Cli) -> Result<i32> {
             );
             Ok(0)
         }
-        Cmd::Install { what } => {
+        Cmd::Install { what, dry_run } => {
             if what != "chrome" {
                 bail!("only `testkit install chrome` is supported")
             }
-            install_chrome().await
+            install_chrome(dry_run).await
         }
         Cmd::Migrate { file } => {
             let s = std::fs::read_to_string(&file)?;
@@ -743,7 +759,7 @@ fn open_path(p: &Path) {
     std::process::Command::new(cmd).arg(p).spawn().ok();
 }
 
-async fn install_chrome() -> Result<i32> {
+async fn install_chrome(dry_run: bool) -> Result<i32> {
     let platform = match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", "aarch64") => "mac-arm64",
         ("macos", _) => "mac-x64",
@@ -761,6 +777,10 @@ async fn install_chrome() -> Result<i32> {
     let dir = PathBuf::from(std::env::var("HOME")?)
         .join(".cache/testkit/chrome")
         .join(scalar_text(&stable["version"]));
+    if dry_run {
+        println!("would download {url}\ninto {}", dir.display());
+        return Ok(0);
+    }
     std::fs::create_dir_all(&dir)?;
     println!("downloading Chrome for Testing {} ({platform})…", scalar_text(&stable["version"]));
     let bytes = reqwest::get(url).await?.bytes().await?;

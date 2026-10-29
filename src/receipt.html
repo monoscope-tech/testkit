@@ -30,7 +30,7 @@ button.copy{border:1px solid var(--line);background:var(--surface);color:inherit
   <header class="head"><span class="stamp" id="stamp"></span><div><h1 id="title"></h1><div class="cm" id="sub"></div></div><div class="meta" id="meta"></div></header>
   <section class="grid">
     <nav class="panel claims" id="claims"></nav>
-    <div class="panel stage"><div class="frame" id="frame"></div><div class="track" id="track"></div><div class="diff" id="diff"></div></div>
+    <div class="panel stage"><video id="video" controls muted playsinline style="width:100%;border-radius:8px;display:none"></video><div class="frame" id="frame"></div><div class="track" id="track"></div><div class="diff" id="diff"></div></div>
     <aside class="panel insp"><div class="label">receipt.md</div><pre class="md" id="md"></pre><button class="copy" id="copy">Copy receipt.md</button>
       <div class="label">Integrity (sha256)</div><div class="art" id="art"></div><div class="cm">Verify with <code id="verify"></code></div></aside>
   </section>
@@ -51,6 +51,8 @@ const icon = s => ({pass:'✓', fail:'✗', skip:'–'}[s] || '·');
 function render() {
   document.getElementById('claims').innerHTML = '<div class="label" style="padding:2px 8px 6px">Claims</div>' + M.claims.map((c, ci) => `<div class="claim ${open===ci?'on':''}"><button data-c="${ci}"><span class="dot ${c.status}">${icon(c.status)}</span><span class="ct">${esc(c.title)}</span><span class="cm">${c.status==='skip'?'not run':(c.ms/1000).toFixed(1)+'s'}</span></button>${open===ci?`<div class="steps">${steps.map((s,i)=>s.ci===ci?`<button class="step ${i===cur?'cur':''}" data-s="${i}"><span>${icon(s.status)}</span><span class="ex">${esc(s.verb)} ${esc(s.expr)}</span><span>${s.status==='skip'?'':s.ms+'ms'}</span></button>`:'').join('')}</div>`:''}</div>`).join('');
   const s = steps[cur] || {};
+  const v = document.getElementById('video'), src = (M.claims[open] || {}).evidence?.video;
+  if (src) { if (v.getAttribute('src') !== src) v.setAttribute('src', src); v.style.display = 'block'; } else v.style.display = 'none';
   document.getElementById('frame').innerHTML = s.frame ? `<img alt="screen after: ${esc(s.verb)} ${esc(s.expr)}" src="${s.frame}">` : `<div class="none">${s.status==='skip'?'not run':'no screen captured for this step (API or terminal step)'}</div>`;
   document.getElementById('track').innerHTML = steps.map((x, i) => `<button class="${x.status} ${i===cur?'cur':''}" data-s="${i}" title="${esc(x.verb+' '+x.expr)}" aria-label="step ${i+1}"></button>`).join('');
   const r = s.report || {}, rows = [`<div><b>${icon(s.status)} ${esc(s.verb)} ${esc(s.expr)}</b>  <span class="cm">${s.ms ?? ''}ms · ${esc((s.file||'').split('/').pop())}:${s.line}</span></div>`];

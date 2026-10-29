@@ -346,6 +346,7 @@ impl Pty {
         self.parser.lock().unwrap().set_size(rows, cols);
         Ok(())
     }
+    #[cfg_attr(not(unix), allow(unused_variables))]
     pub fn signal(&mut self, sig: &str) -> Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.child.lock().unwrap().process_id() {

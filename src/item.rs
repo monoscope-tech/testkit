@@ -21,7 +21,7 @@ pub const VERBS: &[&str] = &[
     "meta", "claim", "call", "visit", "click", "dblclick", "hover", "check", "uncheck", "tap",
     "focus", "fill", "select", "upload", "type", "press", "drag", "wait", "expect", "extract",
     "shot", "snapshot", "route", "unroute", "exec", "spawn", "enter", "signal", "resize", "trace",
-    "profile", "heap", "throttle", "network", "emulate", "mark", "back", "reload",
+    "profile", "heap", "coverage", "throttle", "network", "emulate", "mark", "back", "reload",
 ];
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -54,11 +54,13 @@ pub struct Opts {
     pub size: Option<String>,
     pub prompt: Option<String>,
     pub ready: Option<String>,
+    pub record: Option<String>,
     #[serde(flatten)]
     pub request: RequestConfig,
 }
 
 const OPT_KEYS: &[&str] = &[
+    "record",
     "title",
     "dump",
     "asserts",

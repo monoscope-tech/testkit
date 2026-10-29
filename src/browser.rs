@@ -13,6 +13,7 @@ use chromiumoxide::Page;
 use futures_util::StreamExt;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -81,9 +82,15 @@ pub struct Route {
     pub delay_ms: u64,
     pub times: Option<u32>,
     pub hits: u32,
+    /// Fixture file to write the real response to (`record:` with no fixture yet).
+    pub record: Option<String>,
 }
 
 impl Route {
+    /// Routes that act on responses (modify, record) are intercepted at the response stage.
+    pub fn at_response(&self) -> bool {
+        self.modify.is_some() || self.record.is_some()
+    }
     pub fn matches(&self, method: &str, url: &str, base: &str) -> bool {
         self.method.as_deref().is_none_or(|m| m.eq_ignore_ascii_case(method))
             && url_match(&self.pat, url, base)
@@ -427,8 +434,7 @@ impl Tab {
                     let at_response = e.response_status_code.is_some();
                     let modifying = at_response
                         && routes.lock().unwrap().iter().any(|r| {
-                            r.modify.is_some()
-                                && r.matches(&e.request.method, &e.request.url, &base)
+                            r.at_response() && r.matches(&e.request.method, &e.request.url, &base)
                         });
                     if at_response && !modifying {
                         if let Ok(b) =
@@ -463,7 +469,7 @@ impl Tab {
                         let at_response = e.response_status_code.is_some();
                         let hit = rs.iter_mut().rev().find(|r| {
                             r.matches(&e.request.method, &e.request.url, &base)
-                                && (r.modify.is_some() == at_response)
+                                && (r.at_response() == at_response)
                         });
                         hit.map(|r| {
                             if r.modify.is_none() {
@@ -540,7 +546,7 @@ impl Tab {
                     .build(),
             )
         }
-        if rs.iter().any(|r| r.modify.is_some()) {
+        if rs.iter().any(|r| r.at_response()) {
             pats.push(
                 fetch::RequestPattern::builder()
                     .url_pattern("*")
@@ -835,6 +841,22 @@ async fn fulfil(p: &Page, e: &fetch::EventRequestPaused, route: Option<Route>) {
     if r.delay_ms > 0 {
         tokio::time::sleep(Duration::from_millis(r.delay_ms)).await
     }
+    if let Some(path) = &r.record {
+        if let Ok(b) = p.execute(fetch::GetResponseBodyParams::new(id.clone())).await {
+            use base64::Engine;
+            let bytes = if b.base64_encoded {
+                base64::engine::general_purpose::STANDARD.decode(&b.body).unwrap_or_default()
+            } else {
+                b.body.clone().into_bytes()
+            };
+            if let Some(d) = Path::new(path).parent() {
+                std::fs::create_dir_all(d).ok();
+            }
+            std::fs::write(path, pretty(&bytes)).ok();
+        }
+        p.execute(fetch::ContinueResponseParams::new(id)).await.ok();
+        return;
+    }
     if let Some(reason) = &r.abort {
         let er = match reason.as_str() {
             "timedout" => net::ErrorReason::TimedOut,
@@ -886,6 +908,14 @@ async fn fulfil(p: &Page, e: &fetch::EventRequestPaused, route: Option<Route>) {
     if let Ok(c) = cmd {
         p.execute(c).await.ok();
     }
+}
+
+/// JSON fixtures are written pretty-printed so they review well in diffs.
+pub fn pretty(bytes: &[u8]) -> Vec<u8> {
+    serde_json::from_slice::<Value>(bytes)
+        .ok()
+        .and_then(|v| serde_json::to_vec_pretty(&v).ok())
+        .unwrap_or_else(|| bytes.to_vec())
 }
 
 /// `respond:` → (status, body, headers). A string is a fixture file path.

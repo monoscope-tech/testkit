@@ -6,6 +6,11 @@ license = "MIT/Apache-2.0"
 description = "A DSL for testing. Starting with APIs and Browser automation."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["video"]
+# H.264/MP4 receipts (compiles the bundled openh264 encoder); GIFs are always produced
+video = ["dep:openh264", "dep:mp4"]
+
 [lib]
 name = "testkit"
 
@@ -43,6 +48,9 @@ sha2 = "0.10"
 gif = "0.13"
 png = "0.17"
 base64 = "0.22"
+openh264 = { version = "0.9", optional = true }
+mp4 = { version = "0.14", optional = true }
+bytes = "1"
 
 # core-foundation = {git="https://github.com/servo/core-foundation-rs", rev="9effb788767458ad639ce36229cc07fd3b1dc7ba"}
 [dev-dependencies]

@@ -1,0 +1,3 @@
+# opens and closes the disclosure on the widgets page
+- click: button "More"
+- click: button "More"

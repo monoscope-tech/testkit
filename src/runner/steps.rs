@@ -13,9 +13,18 @@ impl Runner {
         match (&item.args, v) {
             (Args::Tmpl(_), "visit") => {
                 let url = self.url(&item.text)?;
+                self.policy().navigate(&url)?;
                 self.last = Surf::Browser;
+                let cov = self.coverage.is_some();
                 let t = self.tab(None).await?;
                 t.goto(&url).await?;
+                if cov {
+                    // CSS rule tracking is per document
+                    use chromiumoxide::cdp::browser_protocol::{css, dom};
+                    t.page.execute(dom::EnableParams::default()).await.ok();
+                    t.page.execute(css::EnableParams::default()).await.ok();
+                    t.page.execute(css::StartRuleUsageTrackingParams::default()).await.ok();
+                }
                 Ok(t.page_state().await)
             }
             (_, "back" | "reload") => {
@@ -106,11 +115,22 @@ impl Runner {
                             scalar_text(a)
                         }
                     });
-                let respond = item.opts.respond.clone().map(|r| match r {
+                let mut respond = item.opts.respond.clone().map(|r| match r {
                     Value::String(s) => Value::String(self.dir.join(s).to_string_lossy().into()),
                     r => r,
                 });
+                // record: replay the fixture when present, otherwise capture the real response into it
+                let mut record = None;
+                if let Some(f) = &item.opts.record {
+                    let path = self.dir.join(self.render(f)?).to_string_lossy().to_string();
+                    if std::path::Path::new(&path).exists() && !self.cfg.update_golden {
+                        respond = Some(Value::String(path))
+                    } else {
+                        record = Some(path)
+                    }
+                }
                 self.routes.push(Route {
+                    record,
                     method: m.clone(),
                     pat: self.render(p)?,
                     respond,
@@ -139,6 +159,7 @@ impl Runner {
             (Args::Tmpl(_), "exec") => {
                 self.last = Surf::Term;
                 let cmd = self.render_shell(&item.text)?;
+                self.policy().command(&cmd)?;
                 let env = self.env(item)?;
                 let cwd = Some(self.cwd(item)?);
                 let out = term::exec(
@@ -185,7 +206,7 @@ impl Runner {
                 self.tab(None).await?.emulate(&item.text).await?;
                 Ok(Value::Null)
             }
-            (Args::Toggle(on, into), "trace" | "profile" | "heap") => {
+            (Args::Toggle(on, into), "trace" | "profile" | "heap" | "coverage") => {
                 self.devtools(v, *on, into.clone()).await
             }
             (_, "mark") => Ok(json!({"mark": item.text})),
@@ -213,6 +234,7 @@ impl Runner {
 
     pub(crate) async fn spawn(&mut self, item: &Item) -> Result<Value> {
         let cmd = self.render_shell(&item.text)?;
+        self.policy().command(&cmd)?;
         let name = item.opts.session.clone().unwrap_or_else(|| {
             cmd.split_whitespace()
                 .next()
@@ -645,6 +667,40 @@ impl Runner {
                 let path = std::fs::canonicalize(&path)?;
                 Ok(json!({"file": path, "events": events.len()}))
             }
+            ("coverage", true) => {
+                use chromiumoxide::cdp::browser_protocol::{css, dom};
+                t.page.execute(profiler::EnableParams::default()).await?;
+                t.page
+                    .execute(
+                        profiler::StartPreciseCoverageParams::builder()
+                            .call_count(true)
+                            .detailed(true)
+                            .build(),
+                    )
+                    .await?;
+                let mut cov = Coverage::default();
+                let mut added = t.page.event_listener::<css::EventStyleSheetAdded>().await?;
+                let sheets = cov.sheets.clone();
+                cov.listener = Some(tokio::spawn(async move {
+                    use futures_util::StreamExt;
+                    while let Some(e) = added.next().await {
+                        sheets
+                            .lock()
+                            .unwrap()
+                            .insert(e.header.style_sheet_id.inner().clone(), e.header.length);
+                    }
+                }));
+                t.page.execute(dom::EnableParams::default()).await?;
+                t.page.execute(css::EnableParams::default()).await?;
+                t.page.execute(css::StartRuleUsageTrackingParams::default()).await?;
+                self.coverage = Some(cov);
+                Ok(Value::Null)
+            }
+            ("coverage", false) => {
+                let v = self.coverage_read().await?;
+                self.coverage = None;
+                Ok(v)
+            }
             ("heap", _) => {
                 let h = self.heap().await?;
                 if let Some(n) = into {
@@ -791,6 +847,7 @@ impl Runner {
         }
         let method = reqwest::Method::from_bytes(item.verb.as_bytes())?;
         let url = self.url(&item.text)?;
+        self.policy().request(method.as_str(), &url, &self.base())?;
         if let Some(h) = &rc.pre_request_hook {
             if let Ok(v) = rhai::Engine::new().eval_expression::<String>(h) {
                 r.step_log.push_str(&format!("pre-hook: {v}\n"))
@@ -886,7 +943,7 @@ impl Runner {
             .routes
             .iter_mut()
             .rev()
-            .find(|rt| rt.modify.is_none() && rt.matches(method.as_str(), &url, &base))
+            .find(|rt| !rt.at_response() && rt.matches(method.as_str(), &url, &base))
             .map(|rt| {
                 rt.hits += 1;
                 rt.clone()
@@ -913,6 +970,21 @@ impl Runner {
         };
         let mut json_body: Value = serde_json::from_str(&raw).unwrap_or(Value::Object(Map::new()));
         let base_ = base.clone();
+        if !mocked {
+            if let Some(path) = self
+                .routes
+                .iter()
+                .rev()
+                .find(|rt| rt.record.is_some() && rt.matches(method.as_str(), &url, &base_))
+                .and_then(|rt| rt.record.clone())
+            {
+                if let Some(d) = std::path::Path::new(&path).parent() {
+                    std::fs::create_dir_all(d).ok();
+                }
+                std::fs::write(&path, crate::browser::pretty(raw.as_bytes()))?;
+                r.step_log.push_str(&format!("recorded fixture → {path}\n"));
+            }
+        }
         if let Some(rt) = self
             .routes
             .iter()
@@ -996,4 +1068,87 @@ async fn select(t: &Tab, rf: &Value, label: &str) -> Result<Value> {
         bail!("E_NOT_FOUND option `{label}`; options are: {}", r["options"])
     }
     Ok(r)
+}
+
+impl Runner {
+    /// Unused JS/CSS bytes (percent) since `coverage: start`, accumulated across reads.
+    pub(crate) async fn coverage_read(&mut self) -> Result<Value> {
+        use chromiumoxide::cdp::browser_protocol::css;
+        use chromiumoxide::cdp::js_protocol::profiler;
+        if self.coverage.is_none() {
+            return Ok(json!({"unused_js": null, "unused_css": null}));
+        }
+        let t = self.tab(None).await?;
+        let js = t
+            .page
+            .execute(profiler::TakePreciseCoverageParams::default())
+            .await?
+            .result
+            .result
+            .clone();
+        let rules = t
+            .page
+            .execute(css::StopRuleUsageTrackingParams::default())
+            .await
+            .map(|r| r.result.rule_usage.clone())
+            .unwrap_or_default();
+        t.page.execute(css::StartRuleUsageTrackingParams::default()).await.ok();
+        let cov = self.coverage.as_mut().unwrap();
+        for s in js.iter().filter(|s| !s.url.is_empty() && !s.url.starts_with("chrome")) {
+            let len = s
+                .functions
+                .iter()
+                .flat_map(|f| f.ranges.iter())
+                .map(|r| r.end_offset)
+                .max()
+                .unwrap_or(0)
+                .max(0) as usize;
+            let used = cov.js.entry(s.url.clone()).or_insert_with(|| vec![false; len]);
+            if used.len() < len {
+                used.resize(len, false)
+            }
+            let mut now = vec![false; len];
+            for f in &s.functions {
+                for r in &f.ranges {
+                    let (a, b) =
+                        (r.start_offset.max(0) as usize, (r.end_offset.max(0) as usize).min(len));
+                    now[a..b].iter_mut().for_each(|x| *x = r.count > 0);
+                }
+            }
+            used.iter_mut().zip(now).for_each(|(u, n)| *u |= n);
+        }
+        for r in rules {
+            let e = cov
+                .css
+                .entry((
+                    r.style_sheet_id.inner().clone(),
+                    r.start_offset as i64,
+                    r.end_offset as i64,
+                ))
+                .or_insert(false);
+            *e |= r.used;
+        }
+        let (jt, ju) = cov.js.values().fold((0usize, 0usize), |(t, u), v| {
+            (t + v.len(), u + v.iter().filter(|x| **x).count())
+        });
+        let sheets = cov.sheets.lock().unwrap().clone();
+        let ct = sheets.values().sum::<f64>() as i64;
+        let cu = cov
+            .css
+            .iter()
+            .filter(|((id, ..), used)| **used && sheets.contains_key(id))
+            .map(|((_, a, b), _)| b - a)
+            .sum::<i64>()
+            .min(ct);
+        let pct = |total: f64, used: f64| {
+            if total > 0.0 {
+                ((total - used) / total * 1000.0).round() / 10.0
+            } else {
+                0.0
+            }
+        };
+        Ok(
+            json!({"unused_js": pct(jt as f64, ju as f64), "unused_css": pct(ct as f64, cu as f64), "js_bytes": jt, "css_bytes": ct}),
+        )
+    }
 }

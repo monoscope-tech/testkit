@@ -272,10 +272,7 @@ impl Runner {
             .find_map(|e| if let Event::Dur(d) = e { Some(*d as u64) } else { None })
             .or(timeout)
             .unwrap_or(self.cfg.nav_ms);
-        let start_url = match self.tabs.get(&self.cur_b) {
-            Some(t) => t.url().await,
-            None => String::new(),
-        };
+        let start_url = self.nav_from.clone();
         let marks = self.prev.clone();
         let t0 = Instant::now();
         loop {
@@ -579,7 +576,15 @@ impl Runner {
                                 p[k] = x.clone()
                             }
                         }
-                        if let Ok(m) = t.page.metrics().await {
+                        let mets = t.page.metrics().await;
+                        if self.coverage.is_some() {
+                            if let Ok(c) = self.coverage_read().await {
+                                for k in ["unused_js", "unused_css"] {
+                                    p[k] = c[k].clone()
+                                }
+                            }
+                        }
+                        if let Ok(m) = mets {
                             for (n, k) in [
                                 ("JSHeapUsedSize", "heap"),
                                 ("Nodes", "nodes"),

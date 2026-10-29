@@ -2,6 +2,35 @@
 use super::*;
 
 impl Runner {
+    /// Every request of the run (browser sessions and API steps) as a HAR 1.2 log.
+    pub fn har(&self) -> Value {
+        let now = chrono::Utc::now().to_rfc3339();
+        let hdrs = |v: &Value| -> Value {
+            json!(v.as_object().map(|o| o.iter().map(|(k, v)| json!({"name": k, "value": match v { Value::Array(a) => a.iter().map(scalar_text).collect::<Vec<_>>().join(", "), v => scalar_text(v) }})).collect::<Vec<_>>()).unwrap_or_default())
+        };
+        let entry = |q: &Req, page: &str| {
+            json!({
+                "pageref": page, "startedDateTime": now, "time": q.ms,
+                "request": {"method": q.method, "url": q.url, "httpVersion": "HTTP/1.1", "headers": hdrs(&q.req["headers"]), "queryString": [], "cookies": [], "headersSize": -1, "bodySize": -1},
+                "response": {"status": q.status.unwrap_or(0), "statusText": q.failed.clone().unwrap_or_default(), "httpVersion": "HTTP/1.1", "headers": hdrs(&q.headers), "cookies": [],
+                    "content": {"size": q.size, "mimeType": q.headers.get("content-type").map(scalar_text).unwrap_or_default(), "text": q.body.clone().unwrap_or_default()}, "redirectURL": "", "headersSize": -1, "bodySize": q.size},
+                "cache": {}, "timings": {"send": 0, "wait": q.ms, "receive": 0}, "_mocked": q.mocked,
+            })
+        };
+        let mut entries: Vec<Value> = self.api_reqs.iter().map(|q| entry(q, "api")).collect();
+        for (name, t) in &self.tabs {
+            entries.extend(t.log.lock().unwrap().reqs.iter().map(|q| entry(q, name)))
+        }
+        let mut pages: Vec<Value> = self
+            .tabs
+            .keys()
+            .map(|n| json!({"id": n, "title": n, "startedDateTime": now, "pageTimings": {}}))
+            .collect();
+        pages.push(
+            json!({"id": "api", "title": "API steps", "startedDateTime": now, "pageTimings": {}}),
+        );
+        json!({"log": {"version": "1.2", "creator": {"name": "testkit", "version": env!("CARGO_PKG_VERSION")}, "pages": pages, "entries": entries}})
+    }
     pub(crate) fn guard(&mut self, item: &Item, r: &mut StepResult) {
         let allow = item.opts.allow.as_ref().map(|v| v.to_string()).unwrap_or_default();
         let Some(t) = self.tabs.get(&self.cur_b) else { return };
@@ -38,7 +67,15 @@ impl Runner {
             })
             .collect();
         if !bad.is_empty() {
-            r.step_error = Some(format!("E_GUARD this step introduced {} error{}:\n  {}\n  (allow it with `allow: [console errors]`, or `ignore:` in meta)", bad.len(), if bad.len() > 1 { "s" } else { "" }, bad.join("\n  ")));
+            let kinds = match (
+                bad.iter().any(|b| b.starts_with("uncaught")),
+                bad.iter().any(|b| b.starts_with("console")),
+            ) {
+                (true, true) => "console errors, page errors",
+                (true, false) => "page errors",
+                _ => "console errors",
+            };
+            r.step_error = Some(format!("E_GUARD this step introduced {} error{}:\n  {}\n  (allow it with `allow: [{kinds}]`, or `ignore:` in meta)", bad.len(), if bad.len() > 1 { "s" } else { "" }, bad.join("\n  ")));
         }
     }
 

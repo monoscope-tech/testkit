@@ -792,7 +792,7 @@ pub fn args(verb: &str, s: &str) -> Result<Args, ParseErr> {
                 .map(|(w, _, h)| Args::Resize(w, h)),
             s,
         ),
-        "trace" | "profile" | "record" => run(
+        "trace" | "profile" | "coverage" | "record" => run(
             alt((
                 kw("start").value(Args::Toggle(true, None)),
                 preceded(kw("stop"), opt(preceded(kw("into"), ident)))

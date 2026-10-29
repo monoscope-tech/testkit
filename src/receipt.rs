@@ -69,7 +69,8 @@ fn redact(
     s
 }
 
-fn gif(frames: &[&Vec<u8>]) -> Option<Vec<u8>> {
+/// PNG frames → RGBA (frames of a different size than the first are dropped).
+fn decode(frames: &[&Vec<u8>]) -> Vec<(u32, u32, Vec<u8>)> {
     let decoded: Vec<(u32, u32, Vec<u8>)> = frames
         .iter()
         .filter_map(|png| {
@@ -87,6 +88,95 @@ fn gif(frames: &[&Vec<u8>]) -> Option<Vec<u8>> {
             Some((info.width, info.height, rgba))
         })
         .collect();
+    let first = decoded.first().map(|d| (d.0, d.1));
+    decoded.into_iter().filter(|d| Some((d.0, d.1)) == first).collect()
+}
+
+#[cfg(not(feature = "video"))]
+fn mp4(_: &[&Vec<u8>]) -> Option<Vec<u8>> {
+    None
+}
+
+/// H.264 in MP4 (bundled openh264 encoder, pure-Rust muxer); one frame per step, 900ms each.
+#[cfg(feature = "video")]
+fn mp4(frames: &[&Vec<u8>]) -> Option<Vec<u8>> {
+    use openh264::encoder::{Encoder, EncoderConfig};
+    use openh264::formats::{RgbSliceU8, YUVBuffer};
+    let decoded = decode(frames);
+    let (w0, h0, _) = decoded.first()?.clone();
+    let (w, h) = ((w0 & !1) as usize, (h0 & !1) as usize);
+    let mut enc =
+        Encoder::with_api_config(openh264::OpenH264API::from_source(), EncoderConfig::new())
+            .ok()?;
+    let (mut sps, mut pps, mut samples) = (None, None, vec![]);
+    for (_, _, rgba) in &decoded {
+        let rgb: Vec<u8> = (0..h)
+            .flat_map(|y| {
+                (0..w).flat_map(move |x| {
+                    let i = (y * w0 as usize + x) * 4;
+                    [i, i + 1, i + 2]
+                })
+            })
+            .map(|i| rgba[i])
+            .collect();
+        let yuv = YUVBuffer::from_rgb_source(RgbSliceU8::new(&rgb, (w, h)));
+        let data = enc.encode(&yuv).ok()?.to_vec();
+        let (mut sample, mut sync) = (vec![], false);
+        for nal in openh264::nal_units(&data) {
+            let start = nal.iter().position(|&b| b == 1)? + 1;
+            let body = &nal[start..];
+            match body.first().map(|b| b & 0x1f) {
+                Some(7) => sps = Some(body.to_vec()),
+                Some(8) => pps = Some(body.to_vec()),
+                Some(t) => {
+                    sync |= t == 5;
+                    sample.extend_from_slice(&(body.len() as u32).to_be_bytes());
+                    sample.extend_from_slice(body)
+                }
+                None => {}
+            }
+        }
+        samples.push((sample, sync));
+    }
+    let brand = |s: &str| s.parse::<mp4::FourCC>().ok();
+    let cfg = mp4::Mp4Config {
+        major_brand: brand("isom")?,
+        minor_version: 512,
+        compatible_brands: vec![brand("isom")?, brand("iso2")?, brand("avc1")?, brand("mp41")?],
+        timescale: 1000,
+    };
+    let mut wr = mp4::Mp4Writer::write_start(std::io::Cursor::new(Vec::new()), &cfg).ok()?;
+    wr.add_track(&mp4::TrackConfig {
+        track_type: mp4::TrackType::Video,
+        timescale: 1000,
+        language: "und".into(),
+        media_conf: mp4::MediaConfig::AvcConfig(mp4::AvcConfig {
+            width: w as u16,
+            height: h as u16,
+            seq_param_set: sps?,
+            pic_param_set: pps?,
+        }),
+    })
+    .ok()?;
+    for (i, (bytes, sync)) in samples.into_iter().enumerate() {
+        wr.write_sample(
+            1,
+            &mp4::Mp4Sample {
+                start_time: i as u64 * 900,
+                duration: 900,
+                rendering_offset: 0,
+                is_sync: sync,
+                bytes: bytes::Bytes::from(bytes),
+            },
+        )
+        .ok()?;
+    }
+    wr.write_end().ok()?;
+    Some(wr.into_writer().into_inner())
+}
+
+fn gif(frames: &[&Vec<u8>]) -> Option<Vec<u8>> {
+    let decoded = decode(frames);
     let (w, h, _) = decoded.first()?.clone();
     let step = (w / 480).max(1);
     let (ow, oh) = (w / step, h / step);
@@ -158,6 +248,11 @@ pub async fn write(
                     ev[k] = json!(p)
                 }
             }
+            if let Some(v) = mp4(&frames) {
+                let p = format!("media/claim{}.mp4", ci + 1);
+                artifacts.push((p.clone(), v));
+                ev["video"] = json!(p)
+            }
             if let Some(g) = gif(&frames) {
                 let p = format!("media/claim{}.gif", ci + 1);
                 artifacts.push((p.clone(), g));
@@ -172,6 +267,7 @@ pub async fn write(
         }).collect();
         claim_json.push(json!({"title": c.title, "status": c.status, "line": c.line, "ms": steps.iter().map(|s| s.ms).sum::<u64>(), "evidence": ev, "steps": step_json}));
     }
+    artifacts.push(("network.har".into(), serde_json::to_vec_pretty(&r.har())?));
     for (name, p) in &r.ptys {
         let cast = p
             .cast
@@ -214,7 +310,7 @@ pub async fn write(
     artifacts.push(("receipt.md".into(), md.clone().into_bytes()));
     let mut list: Vec<Value> = vec![];
     for (p, bytes) in &artifacts {
-        let bytes = if p.ends_with(".cast") || p.ends_with(".yaml") {
+        let bytes = if p.ends_with(".cast") || p.ends_with(".yaml") || p.ends_with(".har") {
             redact(&String::from_utf8_lossy(bytes), &secrets, &mut Default::default()).into_bytes()
         } else {
             bytes.clone()
@@ -384,6 +480,62 @@ fn hints(steps: &[Value]) -> Vec<String> {
         out.push(format!("console: {e}"));
     }
     out
+}
+
+const NAMESPACE: &str = "testkit-receipt";
+
+/// Signs the chain hash with an SSH key (`ssh-keygen -Y sign`); returns the signer fingerprint.
+pub fn sign(dir: &Path, key: &Path) -> Result<String> {
+    let m: Value = serde_json::from_slice(&std::fs::read(dir.join("receipt.json"))?)?;
+    std::fs::write(dir.join("chain.txt"), format!("{}\n", crate::item::scalar_text(&m["chain"])))?;
+    let pubkey = std::process::Command::new("ssh-keygen").args(["-y", "-f"]).arg(key).output()?;
+    if !pubkey.status.success() {
+        bail!(
+            "cannot read the public key of {}: {}",
+            key.display(),
+            String::from_utf8_lossy(&pubkey.stderr)
+        )
+    }
+    std::fs::write(dir.join("signer.pub"), &pubkey.stdout)?;
+    let out = std::process::Command::new("ssh-keygen")
+        .args(["-Y", "sign", "-n", NAMESPACE, "-f"])
+        .arg(key)
+        .arg(dir.join("chain.txt"))
+        .output()?;
+    if !out.status.success() {
+        bail!("ssh-keygen -Y sign failed: {}", String::from_utf8_lossy(&out.stderr))
+    }
+    fingerprint(&dir.join("signer.pub"))
+}
+fn fingerprint(pubkey: &Path) -> Result<String> {
+    let o = std::process::Command::new("ssh-keygen").arg("-lf").arg(pubkey).output()?;
+    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+/// `Ok(None)` when unsigned; otherwise checks the signature and that it covers this receipt's chain.
+pub fn check_signature(dir: &Path) -> Result<Option<String>> {
+    let sig = dir.join("chain.txt.sig");
+    if !sig.exists() {
+        return Ok(None);
+    }
+    let m: Value = serde_json::from_slice(&std::fs::read(dir.join("receipt.json"))?)?;
+    let signed = std::fs::read_to_string(dir.join("chain.txt"))?;
+    if signed.trim() != crate::item::scalar_text(&m["chain"]) {
+        bail!("the signature covers a different chain than receipt.json")
+    }
+    let mut c = std::process::Command::new("ssh-keygen");
+    c.args(["-Y", "check-novalidate", "-n", NAMESPACE, "-s"])
+        .arg(&sig)
+        .stdin(std::fs::File::open(dir.join("chain.txt"))?);
+    let o = c.output()?;
+    if !o.status.success() {
+        bail!("{}", String::from_utf8_lossy(&o.stderr).trim())
+    }
+    // the key ssh-keygen verified, not whatever signer.pub claims
+    Ok(Some(format!(
+        "{}{}",
+        String::from_utf8_lossy(&o.stdout).trim(),
+        String::from_utf8_lossy(&o.stderr).trim()
+    )))
 }
 
 pub fn latest() -> Result<PathBuf> {

@@ -86,6 +86,9 @@ pub enum Cmd {
         no_video: bool,
         #[arg(long)]
         open: bool,
+        /// Sign the receipt's hash chain with this SSH private key (ssh-keygen -Y sign)
+        #[arg(long, env = "TESTKIT_SIGN_KEY")]
+        sign: Option<PathBuf>,
     },
     /// Show or verify a receipt (latest when no id)
     Receipt {
@@ -142,7 +145,12 @@ pub enum Cmd {
     /// Record perf baselines by running a file
     Baseline { action: String, file: PathBuf },
     /// Download a pinned Chrome for Testing into ~/.cache/testkit
-    Install { what: String },
+    Install {
+        what: String,
+        /// Print what would be downloaded and where, without downloading
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Rewrite legacy syntax ({{var}}, $.env.X) in a file
     Migrate { file: PathBuf },
     /// Create a starter test file

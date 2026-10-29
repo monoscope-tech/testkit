@@ -1,0 +1,2 @@
+- meta: { policy: { forbid: ['request "DELETE /api/**"'] } }
+- DELETE: /api/orders/1042

@@ -80,6 +80,38 @@
 - exec: ${tk} --session att session stop
 - signal: SIGTERM to chrome
 
+- claim: A policy keeps agents inside allowed origins and commands
+- exec: ${tk} test fixtures/policy.yaml
+  asserts:
+    - ok: its exit is 1
+    - ok: its stdout contains "E_POLICY navigation to https://example.com/"
+    - ok: its stdout contains "policy.origins"
+- exec: ${tk} test fixtures/policy_exec.yaml
+  asserts:
+    - ok: its stdout contains "E_POLICY `echo hi`"
+- exec: ${tk} --base-url ${url} test fixtures/policy_req.yaml
+  asserts:
+    - ok: its exit is 1
+    - ok: its stdout contains "forbidden by policy.forbid"
+- GET: /api/orders/1042
+  asserts:
+    - ok: its status is 200
+
+- claim: Real responses can be recorded into fixtures and replayed
+- exec: rm -f .testkit/selftest/orders.fixture.json; ${tk} --base-url ${url} test fixtures/record.yaml
+  asserts:
+    - ok: its exit is 0
+- expect: file ".testkit/selftest/orders.fixture.json"'s json[0].customer is "Bob"
+- POST: /api/orders
+  json: { customer: Zara }
+- exec: ${tk} --base-url ${url} test fixtures/record.yaml
+  asserts:
+    - ok: its exit is 0
+- exec: ${tk} --base-url ${url} test fixtures/record.yaml --update-golden
+  asserts:
+    - ok: its exit is 1
+- expect: the length of file ".testkit/selftest/orders.fixture.json"'s json is 2
+
 - claim: Agent instructions can be installed into a repo
 - exec: mkdir -p .testkit/selftest/repo && cd .testkit/selftest/repo && ${tk} init --agents
 - expect: file ".testkit/selftest/repo/AGENTS.md"'s text contains "testkit grammar"

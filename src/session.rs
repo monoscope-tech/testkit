@@ -226,20 +226,85 @@ pub fn parse_idle(s: &str) -> Option<Duration> {
     ))
 }
 
+/// Local transport for the session daemon: Unix sockets, or named pipes on Windows.
 #[cfg(unix)]
+mod transport {
+    use super::*;
+    pub struct Listener(tokio::net::UnixListener);
+    impl Listener {
+        pub fn bind(name: &str) -> Result<Self> {
+            let path = sock_path(name);
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            std::fs::remove_file(&path).ok();
+            Ok(Listener(tokio::net::UnixListener::bind(&path)?))
+        }
+        pub async fn accept(&mut self) -> Result<tokio::net::UnixStream> {
+            Ok(self.0.accept().await?.0)
+        }
+    }
+    pub fn cleanup(name: &str) {
+        std::fs::remove_file(sock_path(name)).ok();
+    }
+    pub async fn connect(name: &str) -> Result<tokio::net::UnixStream> {
+        Ok(tokio::net::UnixStream::connect(sock_path(name)).await?)
+    }
+    pub fn detach(c: &mut std::process::Command) {
+        use std::os::unix::process::CommandExt;
+        c.process_group(0);
+    }
+}
+#[cfg(windows)]
+mod transport {
+    use super::*;
+    use tokio::net::windows::named_pipe::{
+        ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
+    };
+    /// One pipe per (project directory, session name).
+    fn pipe(name: &str) -> String {
+        let cwd = std::env::current_dir().unwrap_or_default().to_string_lossy().to_lowercase();
+        let h = cwd
+            .bytes()
+            .fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+        format!(r"\\.\pipe\testkit-{h:x}-{name}")
+    }
+    pub struct Listener {
+        name: String,
+        next: NamedPipeServer,
+    }
+    impl Listener {
+        pub fn bind(name: &str) -> Result<Self> {
+            Ok(Listener {
+                name: pipe(name),
+                next: ServerOptions::new().first_pipe_instance(true).create(pipe(name))?,
+            })
+        }
+        pub async fn accept(&mut self) -> Result<NamedPipeServer> {
+            self.next.connect().await?;
+            Ok(std::mem::replace(&mut self.next, ServerOptions::new().create(&self.name)?))
+        }
+    }
+    pub fn cleanup(_: &str) {}
+    pub async fn connect(name: &str) -> Result<NamedPipeClient> {
+        Ok(ClientOptions::new().open(pipe(name))?)
+    }
+    pub fn detach(c: &mut std::process::Command) {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x8;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+}
+
 pub async fn serve(name: &str, cfg: Config, idle: Option<Duration>) -> Result<()> {
-    let path = sock_path(name);
-    std::fs::create_dir_all(path.parent().unwrap())?;
-    std::fs::remove_file(&path).ok();
-    let listener = tokio::net::UnixListener::bind(&path)?;
+    let mut listener = transport::Listener::bind(name)?;
     let mut r = Runner::new(cfg);
     r.file = format!("session:{name}");
     let mut last = Instant::now();
     loop {
         let wait =
             idle.map(|i| i.saturating_sub(last.elapsed())).unwrap_or(Duration::from_secs(3600));
-        let conn = tokio::time::timeout(wait, listener.accept()).await;
-        let Ok(Ok((stream, _))) = conn else {
+        let Ok(Ok(stream)) = tokio::time::timeout(wait, listener.accept()).await else {
             if idle.is_some_and(|i| last.elapsed() >= i) {
                 break;
             } else {
@@ -247,33 +312,34 @@ pub async fn serve(name: &str, cfg: Config, idle: Option<Duration>) -> Result<()
             }
         };
         last = Instant::now();
-        let (rd, mut wr) = stream.into_split();
+        let (rd, mut wr) = tokio::io::split(stream);
         let mut line = String::new();
         BufReader::new(rd).read_line(&mut line).await?;
         let req: Value = serde_json::from_str(&line).unwrap_or_default();
         let stop = req["op"] == "stop";
         let res = if stop { json!({"ok": true, "stopped": name}) } else { op(&mut r, &req).await };
         wr.write_all(format!("{res}\n").as_bytes()).await.ok();
+        wr.flush().await.ok();
         if stop {
             break;
         }
     }
     r.close().await;
-    std::fs::remove_file(&path).ok();
+    transport::cleanup(name);
     Ok(())
 }
 
-#[cfg(unix)]
 pub async fn send(name: &str, req: &Value) -> Result<Value> {
-    let mut s = tokio::net::UnixStream::connect(sock_path(name)).await?;
-    s.write_all(format!("{req}\n").as_bytes()).await?;
+    let s = transport::connect(name).await?;
+    let (rd, mut wr) = tokio::io::split(s);
+    wr.write_all(format!("{req}\n").as_bytes()).await?;
+    wr.flush().await?;
     let mut out = String::new();
-    BufReader::new(s).read_line(&mut out).await?;
+    BufReader::new(rd).read_line(&mut out).await?;
     serde_json::from_str(&out).map_err(|e| anyhow!("bad daemon reply: {e}"))
 }
 
 /// Connects to the session daemon, starting it in the background first if needed.
-#[cfg(unix)]
 pub async fn ensure(name: &str, extra: &[String]) -> Result<()> {
     if send(name, &json!({"op": "status"})).await.is_ok() {
         return Ok(());
@@ -286,8 +352,7 @@ pub async fn ensure(name: &str, extra: &[String]) -> Result<()> {
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
-    use std::os::unix::process::CommandExt;
-    c.process_group(0);
+    transport::detach(&mut c);
     c.spawn()?;
     let t = Instant::now();
     while t.elapsed() < Duration::from_secs(15) {
@@ -297,17 +362,4 @@ pub async fn ensure(name: &str, extra: &[String]) -> Result<()> {
         }
     }
     bail!("session `{name}` did not start; see .testkit/sessions/{name}.log")
-}
-
-#[cfg(not(unix))]
-pub async fn serve(_: &str, _: Config, _: Option<Duration>) -> Result<()> {
-    bail!("CLI sessions need a Unix socket; use `testkit repl` on Windows")
-}
-#[cfg(not(unix))]
-pub async fn send(_: &str, _: &Value) -> Result<Value> {
-    bail!("CLI sessions need a Unix socket; use `testkit repl` on Windows")
-}
-#[cfg(not(unix))]
-pub async fn ensure(_: &str, _: &[String]) -> Result<()> {
-    bail!("CLI sessions need a Unix socket; use `testkit repl` on Windows")
 }
