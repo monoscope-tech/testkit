@@ -4,14 +4,14 @@
   exports: [port]
 
 - claim: A passing flow produces a verifiable receipt
-- exec: ${tk} prove fixtures/proof.yaml
+- exec: mkdir -p .testkit/prove-selftest; ${tk} prove fixtures/proof.yaml > .testkit/prove-selftest/prove.out; s=$?; cat .testkit/prove-selftest/prove.out; exit $s
   env: { PASS: hunter22 }
   asserts:
     - ok: its exit is 0
     - ok: its stdout contains "✅ Proven"
     - ok: its stdout contains "2/2 claims"
     - ok: its stdout contains "claim1.gif"
-- exec: ls -t .testkit/receipts | head -1
+- exec: grep -o 'rcpt_[0-9a-f]*' .testkit/prove-selftest/prove.out | head -1
 - extract: its stdout into rid
 - expect: file ".testkit/receipts/${rid}/receipt.json"'s json's status is "proven"
 - expect: the length of file ".testkit/receipts/${rid}/receipt.json"'s json's claims is 2
@@ -35,13 +35,13 @@
     - ok: its stdout contains "media/claim1.gif"
 
 - claim: Receipts can be signed with an SSH key and the signature verified
-- exec: rm -rf .testkit/selftest/key* && mkdir -p .testkit/selftest && ssh-keygen -q -t ed25519 -N "" -C testkit-selftest -f .testkit/selftest/key
-- exec: ${tk} prove fixtures/proof.yaml --no-video --sign .testkit/selftest/key
+- exec: rm -rf .testkit/prove-selftest/key* && mkdir -p .testkit/prove-selftest && ssh-keygen -q -t ed25519 -N "" -C testkit-selftest -f .testkit/prove-selftest/key
+- exec: mkdir -p .testkit/prove-selftest; ${tk} prove fixtures/proof.yaml --no-video --sign .testkit/prove-selftest/key > .testkit/prove-selftest/prove.out; s=$?; cat .testkit/prove-selftest/prove.out; exit $s
   env: { PASS: hunter22 }
   asserts:
     - ok: its exit is 0
     - ok: its stdout contains "signed by 256 SHA256:"
-- exec: ls -t .testkit/receipts | head -1
+- exec: grep -o 'rcpt_[0-9a-f]*' .testkit/prove-selftest/prove.out | head -1
 - extract: its stdout into sid
 - exec: ${tk} receipt ${sid} --verify
   asserts:
@@ -53,7 +53,7 @@
     - ok: its stdout contains "signature invalid"
 
 - claim: A failing flow is reported as not proven, later claims not run
-- exec: ${tk} prove fixtures/proof_fails.yaml --no-video
+- exec: mkdir -p .testkit/prove-selftest; ${tk} prove fixtures/proof_fails.yaml --no-video > .testkit/prove-selftest/prove.out; s=$?; cat .testkit/prove-selftest/prove.out; exit $s
   asserts:
     - ok: its exit is 1
     - ok: its stdout contains "❌ Not proven"
