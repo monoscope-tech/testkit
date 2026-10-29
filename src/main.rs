@@ -36,7 +36,11 @@ async fn main() {
         .filter_level(log::LevelFilter::from_str(&cli.log_level).unwrap_or(log::LevelFilter::Warn))
         .filter_module(
             "chromiumoxide",
-            if cli.log_level == "trace" { log::LevelFilter::Debug } else { log::LevelFilter::Off },
+            if cli.log_level == "trace" {
+                log::LevelFilter::Debug
+            } else {
+                log::LevelFilter::Error
+            },
         )
         .init();
     let code = match run(cli).await {
@@ -296,9 +300,10 @@ async fn run(cli: Cli) -> Result<i32> {
             let t0 = Instant::now();
             let live = out == "plain" && jobs <= 1;
             let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(jobs.max(1)));
+            let chrome: testkit::runner::SharedChrome = Default::default();
             let mut handles = vec![];
             for f in files.clone() {
-                let cfg = cfg.clone();
+                let (cfg, chrome) = (cfg.clone(), chrome.clone());
                 let permit = sem.clone().acquire_owned().await?;
                 handles.push(tokio::spawn(async move {
                     let _p = permit;
@@ -308,6 +313,7 @@ async fn run(cli: Cli) -> Result<i32> {
                         let mut attempt = 0;
                         loop {
                             let mut r = Runner::new(cfg.clone());
+                            r.share(chrome.clone());
                             if live {
                                 println!(
                                     "\n▶ {}{}",
@@ -361,6 +367,9 @@ async fn run(cli: Cli) -> Result<i32> {
                         code = 2;
                     }
                 }
+            }
+            if let Some(c) = std::sync::Arc::try_unwrap(chrome).ok().and_then(|c| c.into_inner()) {
+                c.close().await
             }
             let all: Vec<StepResult> = per_file.iter().flat_map(|x| x.1.clone()).collect();
             let claims: Vec<_> = per_file.iter().flat_map(|x| x.2.clone()).collect();

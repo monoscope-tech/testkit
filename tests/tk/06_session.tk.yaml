@@ -55,7 +55,7 @@
 - exec: ${tk} session stop
 
 - claim: The recording replays as a normal test with stable locators and no secrets
-- expect: file "${rec}"'s text contains "fill: textbox \"Email\" with \"admin@acme.com\""
+- expect: 'file "${rec}"''s text contains "fill: textbox \"Email\" with \"admin@acme.com\""'
 - expect: file "${rec}"'s text contains "$${env.PASSWORD}"
 - expect: file "${rec}"'s text does not contain "hunter22"
 - expect: file "${rec}"'s text does not contain "@e"

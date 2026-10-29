@@ -13,7 +13,8 @@ fn color() -> bool {
     std::env::var("NO_COLOR").is_err() && atty()
 }
 fn atty() -> bool {
-    unsafe { libc::isatty(2) == 1 }
+    use std::io::IsTerminal;
+    std::io::stderr().is_terminal()
 }
 fn c(code: &str) -> &str {
     if color() {

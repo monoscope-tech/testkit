@@ -67,7 +67,7 @@
 - exec: ${tk} test .testkit/selftest/golden.yaml --update-golden && ${tk} test .testkit/selftest/golden.yaml
 
 - claim: Agents can attach to a Chrome that is already running
-- spawn: '"$${CHROME:-$(command -v google-chrome || command -v chromium || echo "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")}" --headless=new --remote-debugging-port=9333 --user-data-dir=.testkit/selftest/chrome-profile about:blank'
+- spawn: '"$${CHROME:-$(command -v google-chrome || command -v chromium || echo "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")}" --headless=new --no-sandbox --remote-debugging-port=9333 --user-data-dir=.testkit/selftest/chrome-profile about:blank'
   session: chrome
   ready: for text /DevTools listening/ or 20s
 - exec: ${tk} --session att session attach http://127.0.0.1:9333

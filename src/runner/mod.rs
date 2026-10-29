@@ -122,6 +122,8 @@ pub(crate) struct Marks {
 
 /// Called after every step (live reporting).
 pub type OnStep = Box<dyn FnMut(&StepResult) + Send>;
+/// One Chrome shared by every file of a run; each file gets its own browser contexts.
+pub type SharedChrome = std::sync::Arc<tokio::sync::OnceCell<Chrome>>;
 
 pub struct Runner {
     pub cfg: Config,
@@ -132,6 +134,7 @@ pub struct Runner {
     pub file: String,
     pub dir: PathBuf,
     chrome: Option<Chrome>,
+    shared: Option<SharedChrome>,
     pub tabs: BTreeMap<String, Tab>,
     pub ptys: BTreeMap<String, Pty>,
     pub cur_b: String,
@@ -190,6 +193,7 @@ impl Runner {
             file: "inline".into(),
             dir: PathBuf::from("."),
             chrome: None,
+            shared: None,
             tabs: BTreeMap::new(),
             ptys: BTreeMap::new(),
             cur_b: "default".into(),
@@ -469,7 +473,15 @@ impl Runner {
     }
 
     // ---------- sessions ----------
+    /// Use a Chrome shared with other runners instead of launching one.
+    pub fn share(&mut self, c: SharedChrome) {
+        self.shared = Some(c)
+    }
     async fn chrome(&mut self) -> Result<&Chrome> {
+        if let (Some(cell), None) = (&self.shared, &self.cfg.attach) {
+            let headed = self.cfg.headed;
+            return cell.get_or_try_init(|| Chrome::launch(headed)).await;
+        }
         if self.chrome.is_none() {
             let c = match &self.cfg.attach {
                 Some(ws) => Chrome::connect(ws).await?,
@@ -752,8 +764,17 @@ impl Runner {
     }
 
     pub async fn close(&mut self) {
-        self.tabs.clear();
+        let tabs = std::mem::take(&mut self.tabs);
         self.ptys.clear();
+        if let Some(cell) = self.shared.clone() {
+            if let Some(c) = cell.get() {
+                for (_, t) in tabs {
+                    c.release(t).await
+                }
+            }
+        } else {
+            drop(tabs);
+        }
         if let Some(c) = self.chrome.take() {
             c.close().await
         }

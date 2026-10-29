@@ -2,7 +2,7 @@
 use crate::expr::{Locator, Scope};
 use crate::item::scalar_text;
 use anyhow::{anyhow, bail, Result};
-use chromiumoxide::browser::{Browser, BrowserConfig, HeadlessMode};
+use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::{
     emulation, fetch, input, network as net, page as cpage, target,
 };
@@ -167,7 +167,7 @@ impl Chrome {
                 "--hide-scrollbars",
                 "--mute-audio",
             ]);
-        b = if headed { b.with_head() } else { b.headless_mode(HeadlessMode::New) };
+        b = if headed { b.with_head() } else { b.new_headless_mode() };
         if std::env::var("CI").is_ok() || std::env::var("TESTKIT_NO_SANDBOX").is_ok() {
             b = b.no_sandbox()
         }
@@ -212,6 +212,7 @@ impl Chrome {
             }
         }
         let mut params = target::CreateTargetParams::builder().url("about:blank");
+        let mut owned = None;
         if isolated {
             let ctx = self
                 .browser
@@ -228,10 +229,22 @@ impl Chrome {
             {
                 self.browser.execute(cmd).await.ok();
             }
+            owned = Some(ctx.clone());
             params = params.browser_context_id(ctx);
         }
         let page = self.browser.new_page(params.build().map_err(|e| anyhow!(e))?).await?;
-        Tab::wrap(page).await
+        let mut t = Tab::wrap(page).await?;
+        t.ctx = owned;
+        Ok(t)
+    }
+    /// Closes a session's tab and drops its browser context (other files' contexts are untouched).
+    pub async fn release(&self, t: Tab) {
+        let ctx = t.ctx.clone();
+        t.page.clone().close().await.ok();
+        drop(t);
+        if let Some(c) = ctx {
+            self.browser.execute(target::DisposeBrowserContextParams::new(c)).await.ok();
+        }
     }
     pub async fn adopt(&self, id: target::TargetId) -> Result<Tab> {
         Tab::wrap(self.browser.get_page(id).await?).await
@@ -257,6 +270,8 @@ pub fn rand_id() -> String {
 
 pub struct Tab {
     pub page: Page,
+    /// The isolated browser context this tab owns (disposed with the session).
+    pub ctx: Option<chromiumoxide::cdp::browser_protocol::browser::BrowserContextId>,
     pub log: Arc<Mutex<Log>>,
     pub routes: Arc<Mutex<Vec<Route>>>,
     pub dialog: Arc<Mutex<(bool, Option<String>)>>,
@@ -462,7 +477,7 @@ impl Tab {
                 }
             }));
         }
-        let tab = Tab { page, log, routes, dialog, base, tasks };
+        let tab = Tab { page, ctx: None, log, routes, dialog, base, tasks };
         tab.eval_raw(INJECT).await.ok();
         Ok(tab)
     }
@@ -739,6 +754,7 @@ impl Tab {
         self.page.execute(emulation::SetCpuThrottlingRateParams::new(n)).await?;
         Ok(())
     }
+    #[allow(deprecated)] // Network.emulateNetworkConditions still works; the ByRule variant needs per-URL rules
     pub async fn network(&self, s: &str) -> Result<()> {
         let (off, lat, down, up) = match s.trim().to_lowercase().as_str() {
             "offline" => (true, 0.0, -1.0, -1.0),
