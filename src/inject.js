@@ -135,10 +135,18 @@ const matchHead = (el, kind, arg, name) => {
   return false;
 };
 const matchOne = (el, loc) => candidates(loc, [el.parentElement || document]).includes(el);
+const frameSel = s => s.startsWith('#') || s.startsWith('.') || s.includes('[') ? s : `iframe[name="${s}"],iframe[title="${s}"],iframe#${CSS.escape(s)}`;
+T.frameInfo = spec => {
+  const f = deepAll(document).find(e => e.tagName === 'IFRAME' && e.matches(frameSel(spec)));
+  if (!f) return null;
+  let cross = false; try { cross = !f.contentDocument; } catch (e) { cross = true; }
+  const r = f.getBoundingClientRect();
+  return { name: f.name, url: f.src, x: r.x + f.clientLeft, y: r.y + f.clientTop, cross };
+};
 T.query = (loc, roots = [document]) => {
   for (const s of (loc.scope || [])) {
     if (s.Loc) roots = T.query(s.Loc, roots);
-    else if (s.Frame) roots = roots.flatMap(r => [...r.querySelectorAll(s.Frame.startsWith('#') || s.Frame.startsWith('.') || s.Frame.includes('[') ? s.Frame : `iframe[name="${s.Frame}"],iframe[title="${s.Frame}"],iframe#${CSS.escape(s.Frame)}`)].map(f => f.contentDocument).filter(Boolean));
+    else if (s.Frame) roots = roots.flatMap(r => [...r.querySelectorAll(frameSel(s.Frame))].map(f => { try { return f.contentDocument; } catch (e) { return null; } }).filter(Boolean));
   }
   let els = candidates(loc, roots);
   if (els.length > 1 && loc.name && loc.name.Sub !== undefined) {
@@ -229,7 +237,7 @@ T.actionable = async (ref, checks) => {
     }
   }
   let fx = 0, fy = 0;
-  for (let w = el.ownerDocument.defaultView; w && w !== window.top && w.frameElement; w = w.parent) { const fr = w.frameElement.getBoundingClientRect(); fx += fr.x; fy += fr.y; }
+  try { for (let w = el.ownerDocument.defaultView; w && w !== window.top && w.frameElement; w = w.parent) { const fr = w.frameElement.getBoundingClientRect(); fx += fr.x + w.frameElement.clientLeft; fy += fr.y + w.frameElement.clientTop; } } catch (e) {}
   return { ok: true, x: x + fx, y: y + fy };
 };
 T.focusSelect = ref => { const el = T.refs.get(ref); el.focus(); if (el.select) el.select(); else if (el.isContentEditable) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } return true; };

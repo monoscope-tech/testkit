@@ -780,6 +780,32 @@ impl Runner {
         }
     }
 }
+/// While alive, scripts on the tab run inside a cross-origin frame's isolated world.
+pub(crate) struct FrameGuard<'a>(&'a Tab);
+impl Drop for FrameGuard<'_> {
+    fn drop(&mut self) {
+        *self.0.eval_ctx.lock().unwrap() = None
+    }
+}
+/// Routes `… in frame "x"` into a cross-origin frame: returns the locator without the frame
+/// scope, the frame's viewport offset and a guard. Same-origin frames are left to the page script.
+pub(crate) async fn enter_frame<'a>(
+    t: &'a Tab,
+    loc: &Locator,
+) -> Result<(Locator, (f64, f64), FrameGuard<'a>)> {
+    let spec =
+        loc.scope.iter().find_map(|s| if let Scope::Frame(f) = s { Some(f.clone()) } else { None });
+    if let Some(spec) = spec {
+        if let Some((ctx, x, y)) = t.cross_frame(&spec).await? {
+            *t.eval_ctx.lock().unwrap() = Some(ctx);
+            let mut l = loc.clone();
+            l.scope.retain(|s| !matches!(s, Scope::Frame(_)));
+            return Ok((l, (x, y), FrameGuard(t)));
+        }
+    }
+    Ok((loc.clone(), (0.0, 0.0), FrameGuard(t)))
+}
+
 async fn deterministic(t: &Tab) -> Result<()> {
     use chromiumoxide::cdp::browser_protocol::emulation;
     t.page.execute(emulation::SetTimezoneOverrideParams::new("UTC")).await?;

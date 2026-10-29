@@ -500,7 +500,8 @@ impl Runner {
                     }
                 } else {
                     let t = self.tab(sess.as_deref()).await?;
-                    Value::Array(t.resolve(l).await?)
+                    let (fl, _, _frame) = enter_frame(t, l).await?;
+                    Value::Array(t.resolve(&fl).await?)
                 }
             }
             Expr::Subj(s) => {

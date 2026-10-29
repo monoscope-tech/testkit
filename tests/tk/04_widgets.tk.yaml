@@ -32,10 +32,22 @@
 - drag: text exactly "Card" to region "Done"
 - expect: the @data-has of region "Done" is "card"
 
+- claim: Fill works with input masks, rich editors and controlled inputs
+- fill: field "Phone" with "5551234567"
+- expect: the value of field "Phone" is "(555) 123-4567"
+- fill: textbox "Notes" with "New notes"
+- expect: the text of textbox "Notes" is "New notes"
+- fill: field "Controlled" with "abc"
+- expect: text "State ABC" is visible
+- expect: the value of field "Controlled" is "ABC"
+
 - claim: Frames, modals and popups are reachable
 - visit: /frames
 - click: button "Pay now" in frame "pay"
 - expect: button "Paid" in frame "pay" is visible
+- visit: /xframe
+- click: button "Pay now" in frame "xpay"
+- expect: button "Paid" in frame "xpay" is visible
 - visit: /popup
 - click: button "Accept" in dialog "Cookie consent"
 - expect: no dialog "Cookie consent"

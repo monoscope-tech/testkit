@@ -6,6 +6,9 @@
 <div><button id="counter">Count: 0</button></div>
 <div id="list" aria-label="Board"><div draggable="true" id="card">Card</div><div id="done" role="region" aria-label="Done" style="min-height:40px;border:1px dashed #999">Done</div></div>
 <p data-testid="footer-note">Footer note</p>
+<label>Phone <input id="phone" inputmode="tel" placeholder="(555) 555-5555"></label>
+<div role="textbox" aria-label="Notes" contenteditable="true" style="border:1px solid #999;min-height:2em">Old notes</div>
+<label>Controlled <input id="ctl"></label><p id="ctl-echo"></p>
 <script>
 let n = 0; document.getElementById('counter').onclick = e => e.target.textContent = 'Count: ' + (++n);
 document.getElementById('q').addEventListener('input', e => { const v = e.target.value; document.getElementById('results').innerHTML = ['Alice','Bob','Carol'].filter(x => x.toLowerCase().includes(v.toLowerCase())).map(x => '<li>' + x + '</li>').join(''); });
@@ -15,4 +18,9 @@ card.addEventListener('dragstart', e => e.dataTransfer.setData('text', 'card'));
 done.addEventListener('dragover', e => e.preventDefault());
 done.addEventListener('drop', e => { e.preventDefault(); done.appendChild(card); done.setAttribute('data-has', 'card'); });
 document.addEventListener('keydown', e => { if (e.key === 'k' && (e.ctrlKey || e.metaKey)) document.getElementById('q').focus(); });
+// a phone mask that reformats on every input
+document.getElementById('phone').addEventListener('input', e => { const d = e.target.value.replace(/\D/g, '').slice(0, 10); e.target.value = d.length > 6 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : d.length > 3 ? `(${d.slice(0,3)}) ${d.slice(3)}` : d; });
+// a framework-style controlled input: state is the source of truth and is written back after each event
+let ctl = ''; const c = document.getElementById('ctl');
+c.addEventListener('input', e => { ctl = e.target.value.toUpperCase(); c.value = ctl; document.getElementById('ctl-echo').textContent = 'State ' + ctl; });
 </script></main></body></html>

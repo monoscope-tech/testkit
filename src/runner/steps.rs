@@ -319,18 +319,21 @@ impl Runner {
             }
             self.front = want;
         }
-        let t = self.tab(session.as_deref()).await?;
+        self.tab(session.as_deref()).await?;
+        let action_ms = self.cfg.action_ms;
+        let t = &self.tabs[&session.clone().unwrap_or(self.cur_b.clone())];
+        let (floc, off, frame) = enter_frame(t, loc).await?;
         let mut why = String::from("no element matches");
         let el = loop {
-            let els = t.resolve(loc).await?;
+            let els = t.resolve(&floc).await?;
             match els.len() {
                 1 => {
                     let a = t.tk("actionable", &[els[0]["ref"].clone(), json!(checks)]).await?;
                     if a["ok"] == true {
                         break (
                             els[0].clone(),
-                            a["x"].as_f64().unwrap_or(0.0),
-                            a["y"].as_f64().unwrap_or(0.0),
+                            a["x"].as_f64().unwrap_or(0.0) + off.0,
+                            a["y"].as_f64().unwrap_or(0.0) + off.1,
                         );
                     }
                     why = format!("element is {}", scalar_text(&a["reason"]));
@@ -373,7 +376,7 @@ impl Runner {
                         .collect();
                     bail!(
                         "E_NOT_FOUND `{loc}` matched nothing within {}ms{}",
-                        timeout.unwrap_or(self.cfg.action_ms),
+                        timeout.unwrap_or(action_ms),
                         if near.is_empty() {
                             "\n  (run `testkit snapshot` to see the page)".to_string()
                         } else {
@@ -416,17 +419,22 @@ impl Runner {
             "fill" => {
                 let s = to_str(val.as_ref().unwrap_or(&Value::Null));
                 if el["tag"] == "select" {
-                    return self.select(&rf, &s).await;
+                    return select(t, &rf, &s).await;
                 }
                 t.tk("focusSelect", std::slice::from_ref(&rf)).await?;
                 t.key("Delete").await?;
                 if !s.is_empty() {
-                    t.insert_text(&s).await?
+                    t.insert_text(&s).await?;
+                    // widgets that ignore insertText get real keystrokes instead
+                    let r = rf.as_i64().unwrap_or(0);
+                    let now = t.eval_raw(&format!("(e => e ? (e.value ?? e.textContent ?? '') : '')(window.__tk.refs.get({r}))")).await?;
+                    if scalar_text(&now).trim().is_empty() {
+                        t.tk("focusSelect", std::slice::from_ref(&rf)).await?;
+                        t.type_text(&s).await?;
+                    }
                 }
             }
-            "select" => {
-                return self.select(&rf, &to_str(val.as_ref().unwrap_or(&Value::Null))).await
-            }
+            "select" => return select(t, &rf, &to_str(val.as_ref().unwrap_or(&Value::Null))).await,
             "upload" => {
                 let files: Vec<String> = match val {
                     Some(Value::Array(a)) => a.iter().map(to_str).collect(),
@@ -448,18 +456,11 @@ impl Runner {
         }
         tokio::time::sleep(Duration::from_millis(40)).await;
         t.wait_load().await;
+        drop(frame);
         if measure {
             return self.measure(t_act, rq0, item).await;
         }
         Ok(el)
-    }
-    pub(crate) async fn select(&mut self, rf: &Value, label: &str) -> Result<Value> {
-        let t = self.tab(None).await?;
-        let r = t.tk("selectOption", &[rf.clone(), json!(label)]).await?;
-        if r["ok"] != true {
-            bail!("E_NOT_FOUND option `{label}`; options are: {}", r["options"])
-        }
-        Ok(r)
     }
     pub(crate) async fn drag(
         &mut self,
@@ -987,4 +988,12 @@ impl Runner {
             v => v.clone(),
         })
     }
+}
+
+async fn select(t: &Tab, rf: &Value, label: &str) -> Result<Value> {
+    let r = t.tk("selectOption", &[rf.clone(), json!(label)]).await?;
+    if r["ok"] != true {
+        bail!("E_NOT_FOUND option `{label}`; options are: {}", r["options"])
+    }
+    Ok(r)
 }

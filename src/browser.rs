@@ -161,11 +161,16 @@ impl Chrome {
             .user_data_dir(&dir)
             .viewport(Viewport { width: 1280, height: 800, ..Default::default() })
             .request_timeout(Duration::from_secs(60))
+            // keys without dashes: chromiumoxide merges values per key (e.g. with its own disable-features)
+            .arg((
+                "disable-features",
+                "Translate,OptimizationHints,MediaRouter,IsolateOrigins,site-per-process",
+            ))
             .args([
-                "--disable-features=Translate,OptimizationHints,MediaRouter",
-                "--no-first-run",
-                "--hide-scrollbars",
-                "--mute-audio",
+                "disable-site-isolation-trials",
+                "no-first-run",
+                "hide-scrollbars",
+                "mute-audio",
             ]);
         b = if headed { b.with_head() } else { b.new_headless_mode() };
         if std::env::var("CI").is_ok() || std::env::var("TESTKIT_NO_SANDBOX").is_ok() {
@@ -276,6 +281,8 @@ pub struct Tab {
     pub routes: Arc<Mutex<Vec<Route>>>,
     pub dialog: Arc<Mutex<(bool, Option<String>)>>,
     pub base: Arc<Mutex<String>>,
+    /// When set, scripts run in this execution context (a cross-origin frame's isolated world).
+    pub eval_ctx: Mutex<Option<i64>>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
@@ -477,18 +484,21 @@ impl Tab {
                 }
             }));
         }
-        let tab = Tab { page, ctx: None, log, routes, dialog, base, tasks };
+        let tab =
+            Tab { page, ctx: None, log, routes, dialog, base, eval_ctx: Mutex::new(None), tasks };
         tab.eval_raw(INJECT).await.ok();
         Ok(tab)
     }
 
     pub async fn eval_raw(&self, js: &str) -> Result<Value> {
-        let p = runtime::EvaluateParams::builder()
+        let mut p = runtime::EvaluateParams::builder()
             .expression(js)
             .await_promise(true)
-            .return_by_value(true)
-            .build()
-            .map_err(|e| anyhow!(e))?;
+            .return_by_value(true);
+        if let Some(c) = *self.eval_ctx.lock().unwrap() {
+            p = p.context_id(runtime::ExecutionContextId::new(c));
+        }
+        let p = p.build().map_err(|e| anyhow!(e))?;
         let r = tokio::time::timeout(Duration::from_secs(30), self.page.execute(p))
             .await
             .map_err(|_| anyhow!("the page did not respond within 30s"))??;
@@ -580,6 +590,54 @@ impl Tab {
     }
     pub async fn page_state(&self) -> Value {
         self.eval_raw("({url: location.href, title: document.title, path: location.pathname + location.search})").await.unwrap_or(Value::Null)
+    }
+    /// A cross-origin frame (`in frame "x"`) as (isolated-world context, viewport offset).
+    /// Same-origin frames return `None`: the page script reaches them directly.
+    pub async fn cross_frame(&self, spec: &str) -> Result<Option<(i64, f64, f64)>> {
+        let saved = self.eval_ctx.lock().unwrap().take();
+        let info = self.tk("frameInfo", &[json!(spec)]).await;
+        *self.eval_ctx.lock().unwrap() = saved;
+        let info = info?;
+        if info.is_null() || info["cross"] != true {
+            return Ok(None);
+        }
+        let tree = self
+            .page
+            .execute(cpage::GetFrameTreeParams::default())
+            .await?
+            .result
+            .frame_tree
+            .clone();
+        fn find(t: &cpage::FrameTree, name: &str, url: &str) -> Option<cpage::FrameId> {
+            t.child_frames.iter().flatten().find_map(|c| {
+                let f = &c.frame;
+                if f.name.as_deref() == Some(name) || (!url.is_empty() && f.url == url) {
+                    Some(f.id.clone())
+                } else {
+                    find(c, name, url)
+                }
+            })
+        }
+        let Some(fid) = find(&tree, &scalar_text(&info["name"]), &scalar_text(&info["url"])) else {
+            log::debug!(target: "testkit", "frame {spec}: not in frame tree {:?}", tree.child_frames.iter().flatten().map(|c| (&c.frame.name, &c.frame.url)).collect::<Vec<_>>());
+            return Ok(None);
+        };
+        let w = self
+            .page
+            .execute(
+                cpage::CreateIsolatedWorldParams::builder()
+                    .frame_id(fid)
+                    .world_name("testkit")
+                    .grant_univeral_access(true)
+                    .build()
+                    .map_err(|e| anyhow!(e))?,
+            )
+            .await?;
+        Ok(Some((
+            *w.result.execution_context_id.inner(),
+            info["x"].as_f64().unwrap_or(0.0),
+            info["y"].as_f64().unwrap_or(0.0),
+        )))
     }
     pub async fn resolve(&self, loc: &Locator) -> Result<Vec<Value>> {
         let v = self.tk("resolve", &[loc_json(loc)]).await?;

@@ -11,7 +11,7 @@ STATE = {"orders": [{"id": 1042, "customer": "Bob", "plan": "Starter", "status":
 LOCK = threading.Lock()
 PAGES = {"/": "index.html", "/login": "login.html", "/dashboard": "dashboard.html", "/orders": "orders.html",
          "/orders/new": "new.html", "/broken": "broken.html", "/slow": "slow.html", "/popup": "popup.html", "/shift": "shift.html",
-         "/a11y": "a11y.html", "/widgets": "widgets.html", "/frames": "frames.html", "/inner": "inner.html", "/clock": "clock.html"}
+         "/a11y": "a11y.html", "/widgets": "widgets.html", "/frames": "frames.html", "/inner": "inner.html", "/clock": "clock.html", "/xframe": "xframe.html"}
 
 
 class H(BaseHTTPRequestHandler):
