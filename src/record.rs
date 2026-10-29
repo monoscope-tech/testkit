@@ -91,16 +91,51 @@ pub async fn record(
             ));
         }
     }
-    for c in lit.captures_iter(&text.clone()) {
-        let v = &c[1];
-        if v.len() < 3 || v.contains("${") {
-            continue;
-        }
+    let mut extracts: Vec<String> = vec![];
+    // values that came from earlier responses become `extract:` steps (URL ids and quoted literals)
+    let provenance = |r: &mut Runner,
+                      v: &str,
+                      extracts: &mut Vec<String>,
+                      notes: &mut Vec<String>|
+     -> Option<String> {
         if let Some((k, _)) =
             r.vars.iter().find(|(k, x)| k.as_str() != "base_url" && scalar_text(x) == v)
         {
+            return Some(k.clone());
+        }
+        let (expr, mut name) = r.provenance(v)?;
+        while r.vars.contains_key(&name) {
+            name.push('_')
+        }
+        extracts.push(format!("- {}", yaml_item(&format!("extract: {expr} into {name}"))));
+        r.vars.insert(name.clone(), Value::String(v.to_string()));
+        notes.push(format!(
+            "↺ \"{v}\" came from an earlier response; recorded as ${{{name}}} with an extract"
+        ));
+        Some(name)
+    };
+    if ["visit", "GET", "POST", "PUT", "PATCH", "DELETE", "call"].contains(&item.verb.as_str()) {
+        for seg in text.clone().split(['/', '?', '&', '=']).filter(|s| {
+            s.len() >= 2
+                && s.chars().any(|c| c.is_ascii_digit())
+                && !s.contains(':')
+                && !s.contains('$')
+        }) {
+            if let Some(name) = provenance(r, seg, &mut extracts, &mut notes) {
+                text = text.replacen(&format!("/{seg}"), &format!("/${{{name}}}"), 1)
+            }
+        }
+    }
+    for c in lit.captures_iter(&text.clone()) {
+        let v = &c[1];
+        if v.len() < 2 || v.contains("${") {
+            continue;
+        }
+        if let Some(k) = provenance(r, v, &mut extracts, &mut notes) {
             text = text.replacen(&c[0], &format!("\"${{{k}}}\""), 1);
-            notes.push(format!("↺ \"{v}\" recorded as ${{{k}}}"));
+            if !notes.last().is_some_and(|n| n.contains(&format!("${{{k}}}"))) {
+                notes.push(format!("↺ \"{v}\" recorded as ${{{k}}}"))
+            }
         } else if volatile.is_match(v) {
             notes.push(format!("⚠ volatile literal \"{v}\" (contains a date, time or id); consider a regex like /…/"));
         }
@@ -110,7 +145,8 @@ pub async fn record(
             "⚠ fixed sleeps make tests slow and flaky; prefer `wait: for …` or an `expect:`".into(),
         )
     }
-    let mut lines = vec![format!("- {}", yaml_item(&format!("{}: {text}", item.verb)))];
+    let mut lines = extracts;
+    lines.push(format!("- {}", yaml_item(&format!("{}: {text}", item.verb))));
     if let Some(d) = &item.opts.dialog {
         lines.push(format!("  dialog: {d}"))
     }

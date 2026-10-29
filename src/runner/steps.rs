@@ -478,11 +478,14 @@ impl Runner {
         }
         tokio::time::sleep(Duration::from_millis(40)).await;
         t.wait_load().await;
+        // `it` is the element after the action (checked state, new value), when it still exists
+        let r = rf.as_i64().unwrap_or(0);
+        let after = t.eval_raw(&format!("(e => e && e.isConnected ? window.__tk.describe(e) : null)(window.__tk && window.__tk.refs.get({r}))")).await.unwrap_or(Value::Null);
         drop(frame);
         if measure {
             return self.measure(t_act, rq0, item).await;
         }
-        Ok(el)
+        Ok(if after.is_null() { el } else { after })
     }
     pub(crate) async fn drag(
         &mut self,
@@ -744,13 +747,25 @@ impl Runner {
         {
             return Ok(self.pty(None)?.snapshot(all));
         }
+        let lines = self.snapshot_lines(0.9);
         let t = self.tab(None).await?;
         let v = t
             .tk(
                 "snapshot",
-                &[loc.map(loc_json).unwrap_or(Value::Null), json!({"all": all, "refs": true})],
+                &[
+                    loc.map(loc_json).unwrap_or(Value::Null),
+                    json!({"all": all, "refs": true, "max": lines}),
+                ],
             )
             .await?;
+        if v["missing"] == true {
+            let l = loc.map(|l| l.to_string()).unwrap_or_default();
+            let roles = t.eval_raw("[...new Set([...document.querySelectorAll('*')].map(e => window.__tk.role(e)).filter(r => ['main','navigation','banner','contentinfo','region','form','dialog','list','table','complementary'].includes(r)))].join(', ')").await.map(|v| scalar_text(&v)).unwrap_or_default();
+            bail!(
+                "E_NOT_FOUND `snapshot {l}`: nothing on the page matches it{}",
+                if roles.is_empty() { String::new() } else { format!("; landmarks here: {roles}") }
+            );
+        }
         let page = t.page_state().await;
         Ok(format!(
             "# {} — {}\n{}",
@@ -1034,6 +1049,7 @@ impl Runner {
             headers: it["headers"].clone(),
             done: true,
             size: raw.len() as f64,
+            body: Some(raw.clone()),
             ..Default::default()
         });
         self.last_http = it.clone();

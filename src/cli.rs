@@ -42,6 +42,9 @@ pub struct RunOpts {
     /// Use a config profile from testkit.yaml (ci is chosen automatically when CI=true)
     #[arg(long, global = true)]
     pub profile: Option<String>,
+    /// Approximate token budget for each step reply (CLI, REPL, MCP); snapshots and reports are trimmed to fit
+    #[arg(long, global = true, env = "TESTKIT_BUDGET", default_value_t = 2000)]
+    pub budget: usize,
 }
 
 #[derive(Subcommand)]

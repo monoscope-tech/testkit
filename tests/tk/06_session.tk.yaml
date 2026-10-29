@@ -63,3 +63,34 @@
   asserts:
     - ok: its exit is 0
     - ok: its stdout contains "5 passed, 0 failed"
+
+- claim: Recorded values that came from responses become extract steps
+- exec: ${tk} session stop; rm -f .testkit/selftest/created.tk.yaml
+- exec: ${tk} visit http://127.0.0.1:${port}/orders/new --record .testkit/selftest/created.tk.yaml
+- exec: ${tk} fill 'field "Customer"' --value Ivy --record .testkit/selftest/created.tk.yaml
+- exec: ${tk} click 'button "Save"' --record .testkit/selftest/created.tk.yaml
+- GET: /api/orders
+- extract: its json[-1]'s id into new_id
+- exec: ${tk} visit http://127.0.0.1:${port}/orders/${new_id} --record .testkit/selftest/created.tk.yaml
+  asserts:
+    - ok: its stdout contains "came from an earlier response"
+- exec: ${tk} expect 'heading "Order" is visible' --record .testkit/selftest/created.tk.yaml
+- exec: ${tk} session stop
+- expect: 'file ".testkit/selftest/created.tk.yaml"''s text contains "extract: (the json of last request \"POST /api/orders\")''s id into order_id"'
+- expect: file ".testkit/selftest/created.tk.yaml"'s text contains "/orders/$${order_id}"
+- exec: ${env.TESTKIT_BIN} test .testkit/selftest/created.tk.yaml
+  asserts:
+    - ok: its exit is 0
+
+- claim: Suggestions cover state changes and disappearances
+- exec: ${tk} session stop
+- exec: ${tk} visit http://127.0.0.1:${port}/widgets
+- exec: ${tk} check 'checkbox "Newsletter"'
+- exec: ${tk} suggest
+  asserts:
+    - ok: its stdout contains "expect: checkbox \"Newsletter\" is checked"
+- exec: ${tk} visit http://127.0.0.1:${port}/popup
+- exec: ${tk} click 'button "Accept" in dialog "Cookie consent"'
+- exec: ${tk} suggest --accept 1 --record .testkit/selftest/suggested.tk.yaml
+- exec: ${tk} session stop
+- expect: file ".testkit/selftest/suggested.tk.yaml"'s text contains "expect: no dialog"

@@ -41,6 +41,8 @@ pub struct Config {
     pub attach: Option<String>,
     pub secrets: Vec<String>,
     pub policy: Option<crate::policy::Policy>,
+    /// Approximate tokens per step reply.
+    pub budget: usize,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -60,6 +62,7 @@ impl Default for Config {
             deterministic: false,
             attach: None,
             policy: None,
+            budget: 2000,
             secrets: vec![],
         }
     }
@@ -482,6 +485,10 @@ impl Runner {
     }
 
     // ---------- sessions ----------
+    /// Snapshot lines that fit the budget (~15 tokens a line).
+    pub(crate) fn snapshot_lines(&self, share: f64) -> usize {
+        ((self.cfg.budget as f64 * share / 15.0) as usize).clamp(8, 1000)
+    }
     pub(crate) fn policy(&self) -> crate::policy::Policy {
         self.cfg.policy.clone().unwrap_or_default()
     }

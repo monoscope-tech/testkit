@@ -359,10 +359,20 @@ pub fn markdown(m: &Value) -> String {
     };
     let claims = m["claims"].as_array().cloned().unwrap_or_default();
     let proven = claims.iter().filter(|c| c["status"] == "pass").count();
-    let mut out = format!("## {} · {} · {proven}/{} claims\n`{}` · {} · git `{}`{} · {} · testkit {}\n\n| | Claim | Evidence |\n|---|---|---|\n",
+    let git = match s(&m["env"]["git"]["sha"]) {
+        sha if sha.is_empty() => String::new(),
+        sha => format!(
+            " · git `{sha}`{}",
+            if m["env"]["git"]["dirty"] == true { " (dirty)" } else { "" }
+        ),
+    };
+    let base = match s(&m["env"]["base_url"]) {
+        b if b.is_empty() => String::new(),
+        b => format!(" · {b}"),
+    };
+    let mut out = format!("## {} · {} · {proven}/{} claims\n`{}` · {}{git}{base} · testkit {}\n\n| | Claim | Evidence |\n|---|---|---|\n",
         if m["status"] == "proven" { "✅ Proven" } else { "❌ Not proven" }, Path::new(&s(&m["source"]["file"])).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
-        claims.len(), s(&m["id"]), &s(&m["created"])[..16.min(s(&m["created"]).len())], s(&m["env"]["git"]["sha"]), if m["env"]["git"]["dirty"] == true { " (dirty)" } else { "" },
-        s(&m["env"]["base_url"]), s(&m["env"]["testkit"]));
+        claims.len(), s(&m["id"]), &s(&m["created"])[..16.min(s(&m["created"]).len())], s(&m["env"]["testkit"]));
     for c in &claims {
         let steps = c["steps"].as_array().cloned().unwrap_or_default();
         let ev = if c["status"] == "skip" {

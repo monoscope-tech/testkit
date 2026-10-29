@@ -253,10 +253,17 @@ T.scrollTo = loc => { const el = T.query(loc)[0]; if (el) el.scrollIntoView({ bl
 T.tree = (rootEl, all) => {
   const keep = r => r && (all || INTERACTIVE.includes(r) || LANDMARK.includes(r) || STRUCT.includes(r));
   const walk = el => {
+    if (el.nodeType === 3) { const t = norm(el.textContent); return t && el.parentElement && T.visible(el.parentElement) ? [{ role: 'text', name: '', text: t, children: [] }] : []; }
+    if (el.nodeType !== 1) return [];
     if (!T.visible(el) && el.tagName !== 'OPTION') return [];
-    const kids = []; const nodes = el.shadowRoot ? [...el.shadowRoot.children, ...el.children] : [...el.children];
+    const kids = [];
+    const mixed = el.children.length > 0 && !['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SELECT'].includes(el.tagName);
+    const nodes = el.shadowRoot ? [...el.shadowRoot.children, ...el.childNodes] : mixed ? [...el.childNodes] : [...el.children];
     if (el.tagName === 'IFRAME') { try { nodes.push(...el.contentDocument.body.children); } catch (e) {} }
-    for (const c of nodes) kids.push(...walk(c));
+    for (const c of nodes) for (const k of walk(c)) {
+      const last = kids[kids.length - 1];
+      if (k.role === 'text' && last && last.role === 'text') last.text += ' ' + k.text; else kids.push(k);
+    }
     const r = T.role(el);
     if (keep(r)) {
       const d = { role: r, name: T.name(el), ref: T.ref(el), children: kids };
@@ -292,6 +299,7 @@ const yamlLines = (nodes, depth, opts, out) => {
 };
 T.snapshot = (loc, opts) => {
   const roots = loc ? T.query(loc) : [document.body];
+  if (loc && !roots.length) return { yaml: '', tree: [], missing: true };
   const tree = roots.flatMap(r => { const t = T.tree(r, opts.all); const role = T.role(r); return loc && role ? [{ role, name: T.name(r), ref: T.ref(r), states: [], children: t.length === 1 && t[0].ref === T.ref(r) ? t[0].children : t }] : t; });
   const out = []; yamlLines(tree, 0, { ...opts, max: opts.max || 150 }, out);
   if (out.length >= (opts.max || 150)) out.push('- text: "… truncated (snapshot --all)"');
@@ -302,9 +310,10 @@ T.summary = () => {
   const out = new Set();
   for (const el of deepAll(document)) {
     const r = T.role(el);
-    if (!r || !(LANDMARK.includes(r) || ['heading', 'alert', 'status', 'table', 'dialog', 'alertdialog', 'button', 'link', 'textbox', 'checkbox', 'combobox'].includes(r)) || !T.visible(el)) continue;
+    if (!r || !(LANDMARK.includes(r) || ['heading', 'alert', 'status', 'table', 'dialog', 'alertdialog', 'button', 'link', 'textbox', 'checkbox', 'radio', 'switch', 'combobox', 'tab', 'listitem', 'row'].includes(r)) || !T.visible(el)) continue;
     const n = T.name(el); if (['button', 'link'].includes(r) && !n) continue;
-    out.add(n ? `${r} ${q(n.slice(0, 60))}` : r);
+    const st = (el.checked || el.getAttribute('aria-checked') === 'true') ? ' [checked]' : (el.getAttribute('aria-expanded') === 'true' || (el.tagName === 'SUMMARY' && el.parentElement.open)) ? ' [expanded]' : '';
+    out.add((n ? `${r} ${q(n.slice(0, 60))}` : r) + st);
     if (out.size > 400) break;
   }
   return [...out];

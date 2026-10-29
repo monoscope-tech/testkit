@@ -120,10 +120,38 @@ async fn handle(r: &mut Runner, req: &Value) -> Result<Value> {
         "suggest" => {
             let last =
                 r.results.iter().rev().find(|x| x.verb != "expect").cloned().unwrap_or_default();
-            let mut out: Vec<String> = last.report["appeared"]
-                .as_array()
-                .map(|a| a.iter().map(|x| format!("{} is visible", scalar_text(x))).collect())
-                .unwrap_or_default();
+            let list = |k: &str| -> Vec<String> {
+                last.report[k]
+                    .as_array()
+                    .map(|a| a.iter().map(scalar_text).collect())
+                    .unwrap_or_default()
+            };
+            let (appeared, gone) = (list("appeared"), list("gone"));
+            let base = |x: &str| {
+                x.trim_end_matches(" [checked]").trim_end_matches(" [expanded]").to_string()
+            };
+            let mut out: Vec<String> = appeared
+                .iter()
+                .map(|x| {
+                    // a state change shows up as the same element appearing with a new state
+                    if let Some(b) = x.strip_suffix(" [checked]") {
+                        format!("{b} is checked")
+                    } else if let Some(b) = x.strip_suffix(" [expanded]") {
+                        format!("{b} is expanded")
+                    } else if gone.iter().any(|g| base(g) == *x)
+                        && gone.iter().any(|g| g.ends_with(" [checked]"))
+                    {
+                        format!("{x} is not checked")
+                    } else {
+                        format!("{x} is visible")
+                    }
+                })
+                .collect();
+            for g in &gone {
+                if !appeared.iter().any(|a| base(a) == base(g)) {
+                    out.push(format!("no {}", base(g)))
+                }
+            }
             if let Some(u) = last.report["url"].as_array().and_then(|u| u.get(1)) {
                 out.push(format!("the url of page contains {:?}", scalar_text(u)))
             }

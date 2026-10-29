@@ -95,6 +95,7 @@ fn config(o: &RunOpts) -> Config {
             c.secrets = v.iter().map(scalar_text).collect()
         }
     }
+    c.budget = o.budget;
     if let Ok(u) = std::env::var("TESTKIT_BASE_URL") {
         c.base_url = Some(u)
     }
@@ -148,7 +149,7 @@ fn from_value(r: &Value) -> StepResult {
 }
 
 async fn daemon_args(o: &RunOpts) -> Vec<String> {
-    let mut a = vec![];
+    let mut a = vec!["--budget".to_string(), o.budget.to_string()];
     if o.headed {
         a.push("--headed".into())
     }

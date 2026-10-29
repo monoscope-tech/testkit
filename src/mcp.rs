@@ -23,6 +23,62 @@ fn tools() -> Value {
     ])
 }
 
+/// Elements print as their role and name; everything else as short JSON.
+fn it_text(v: &Value) -> String {
+    let el = |e: &Value| -> String {
+        let (role, name) =
+            (crate::item::scalar_text(&e["role"]), crate::item::scalar_text(&e["name"]));
+        let txt = crate::item::scalar_text(&e["text"]);
+        let mut s = if role.is_empty() {
+            format!(
+                "<{}/> {:?}",
+                crate::item::scalar_text(&e["tag"]),
+                txt.chars().take(60).collect::<String>()
+            )
+        } else {
+            format!("{role} {name:?}")
+        };
+        for k in ["checked", "disabled", "focused"] {
+            if e[k] == true {
+                s.push_str(&format!(" [{k}]"))
+            }
+        }
+        if let Some(v) = e["value"].as_str().filter(|v| !v.is_empty()) {
+            s.push_str(&format!(" = {v:?}"))
+        }
+        s
+    };
+    match v {
+        Value::Object(o) if o.contains_key("__el") => el(v),
+        Value::Array(a) if !a.is_empty() && a.iter().all(|x| x.get("__el").is_some()) => {
+            let shown: Vec<String> = a.iter().take(3).map(el).collect();
+            format!(
+                "{} element{}: {}{}",
+                a.len(),
+                if a.len() == 1 { "" } else { "s" },
+                shown.join(" · "),
+                if a.len() > 3 { " · …" } else { "" }
+            )
+        }
+        v => crate::runner::short(v),
+    }
+}
+
+/// Trims a reply to roughly `budget` tokens (~4 characters each), keeping the head.
+pub fn fit(s: String, budget: usize) -> String {
+    let max = budget * 4;
+    if s.len() <= max {
+        return s;
+    }
+    let cut = s
+        .char_indices()
+        .take_while(|(i, _)| *i < max)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    format!("{}\n… truncated to the {budget}-token budget; narrow it (e.g. `snapshot main`, a locator, or --budget)", &s[..cut])
+}
+
 fn text_of(v: &Value) -> String {
     if let Some(e) = v["error"].as_str() {
         return format!("error: {e}");
@@ -48,7 +104,7 @@ fn text_of(v: &Value) -> String {
                     };
                     let mut t = crate::report::step_text(&res, false);
                     if !r["it"].is_null() && res.verb != "snapshot" {
-                        t.push_str(&format!("\n  it = {}", crate::runner::short(&r["it"])))
+                        t.push_str(&format!("\n  it = {}", it_text(&r["it"])))
                     }
                     t
                 })
@@ -129,7 +185,7 @@ pub async fn serve(cfg: Config) -> anyhow::Result<()> {
                     n => json!({"error": format!("unknown tool {n}")}),
                 };
                 let failed = reply["ok"] == false || reply.get("error").is_some();
-                json!({"content": [{"type": "text", "text": text_of(&reply)}], "isError": failed})
+                json!({"content": [{"type": "text", "text": fit(text_of(&reply), cfg.budget)}], "isError": failed})
             }
             m if m.starts_with("notifications/") => continue,
             _ => {

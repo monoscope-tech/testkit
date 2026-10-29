@@ -2,6 +2,67 @@
 use super::*;
 
 impl Runner {
+    /// Where a literal used by the current step came from: an earlier response (before this step
+    /// started). Returns an `extract:` expression and a variable name for the recorder.
+    pub(crate) fn provenance(&self, value: &str) -> Option<(String, String)> {
+        let tab_reqs: Vec<Req> = self
+            .tabs
+            .get(&self.cur_b)
+            .map(|t| {
+                let upto = self.cur.tabs.get(&self.cur_b).map(|m| m.0).unwrap_or(usize::MAX);
+                t.log.lock().unwrap().reqs.iter().take(upto).cloned().collect()
+            })
+            .unwrap_or_default();
+        let reqs = self.api_reqs.iter().take(self.cur.api).cloned().chain(tab_reqs);
+        let mut best: Option<((usize, bool), String, String)> = None;
+        for q in reqs {
+            let Some(body) = &q.body else { continue };
+            let Ok(j) = serde_json::from_str::<Value>(body) else { continue };
+            if let Some(path) = find_value(&j, value, 0) {
+                let full = path_of(&q.url);
+                let segs: Vec<&str> =
+                    full.split('?')
+                        .next()
+                        .unwrap_or("")
+                        .split('/')
+                        .map(|s| {
+                            if s.chars().any(|c| c.is_ascii_digit()) && s.len() > 1 {
+                                "*"
+                            } else {
+                                s
+                            }
+                        })
+                        .collect();
+                let pat = segs.join("/");
+                let access: String = path
+                    .iter()
+                    .map(|p| match p {
+                        Ok(k) => format!("'s {k}"),
+                        Err(i) => format!("[{i}]"),
+                    })
+                    .collect();
+                let resource = segs
+                    .iter()
+                    .rev()
+                    .find(|s| !s.is_empty() && **s != "*" && **s != "api")
+                    .map(|s| s.trim_end_matches('s'))
+                    .unwrap_or("value");
+                let key = path
+                    .iter()
+                    .rev()
+                    .find_map(|p| p.as_ref().ok().cloned())
+                    .unwrap_or_else(|| "value".into());
+                let name = if key == "id" { format!("{resource}_id") } else { key };
+                let expr = format!("(the json of last request \"{} {pat}\"){access}", q.method);
+                // the request that produced the value (a write) beats later reads that echo it
+                let score = (path.len(), !["POST", "PUT", "PATCH"].contains(&q.method.as_str()));
+                if best.as_ref().is_none_or(|b| score < b.0) {
+                    best = Some((score, expr, name))
+                }
+            }
+        }
+        best.map(|(_, e, n)| (e, n))
+    }
     /// Every request of the run (browser sessions and API steps) as a HAR 1.2 log.
     pub fn har(&self) -> Value {
         let now = chrono::Utc::now().to_rfc3339();
@@ -156,7 +217,13 @@ impl Runner {
             && r.step_error.is_none()
         {
             if let Ok(v) = t
-                .tk("snapshot", &[Value::Null, json!({"all": false, "refs": true, "max": 60})])
+                .tk(
+                    "snapshot",
+                    &[
+                        Value::Null,
+                        json!({"all": false, "refs": true, "max": self.snapshot_lines(0.5)}),
+                    ],
+                )
                 .await
             {
                 rep["snapshot"] = v["yaml"].clone()
@@ -210,4 +277,37 @@ pub(crate) fn line_diff(want: &str, got: &str) -> String {
         }
     }
     out.join("\n")
+}
+
+/// Path to the first value equal to `v` (keys as Ok, indices as Err), shallowest first.
+fn find_value(j: &Value, v: &str, depth: usize) -> Option<Vec<Result<String, usize>>> {
+    if depth > 6 {
+        return None;
+    }
+    let here = match j {
+        Value::String(s) => s == v,
+        Value::Number(n) => n.to_string() == v,
+        _ => false,
+    };
+    if here {
+        return Some(vec![]);
+    }
+    let kids: Vec<(Result<String, usize>, &Value)> = match j {
+        Value::Object(o) => o.iter().map(|(k, x)| (Ok(k.clone()), x)).collect(),
+        Value::Array(a) => a.iter().enumerate().take(50).map(|(i, x)| (Err(i), x)).collect(),
+        _ => return None,
+    };
+    for (k, x) in &kids {
+        if matches!(x, Value::String(s) if s == v)
+            || matches!(x, Value::Number(n) if n.to_string() == v)
+        {
+            return Some(vec![k.clone()]);
+        }
+    }
+    kids.into_iter().find_map(|(k, x)| {
+        find_value(x, v, depth + 1).map(|mut p| {
+            p.insert(0, k);
+            p
+        })
+    })
 }

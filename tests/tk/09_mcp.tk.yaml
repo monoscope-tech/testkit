@@ -32,3 +32,11 @@
 - press: Enter
 - wait: for text /Proven/ in mcp or 20s
 - press: ctrl+d
+
+- claim: Replies stay within the token budget
+- spawn: ${tk} --budget 100 mcp
+  session: small
+- type: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"step","arguments":{"line":"visit: http://127.0.0.1:${port}/widgets"}}}'
+- press: Enter
+- wait: for text /truncated to the 100-token budget/ in small or 30s
+- press: ctrl+d
