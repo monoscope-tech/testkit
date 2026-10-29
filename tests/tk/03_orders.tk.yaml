@@ -1,0 +1,67 @@
+# Browser CRUD with UI ↔ API cross-checks, aria structure, dialogs, mocking, tables.
+- meta: { base_url: "http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+- call: flows/login.yaml
+  with: { user: admin@acme.com, pass: hunter22 }
+
+- claim: A user can create an order
+- click: button "New order"
+- expect: heading "New order" is visible
+- fill: field "Customer" with "Alice"
+- select: field "Plan" with "Pro"
+- expect: the value of field "Plan" is "Pro"
+- click: button "Save"
+  measure: true
+- expect: its duration is less than 5s
+- expect: alert "Order created" is visible
+- expect: the status of request "POST /api/orders" is 201
+- extract: (the json of request "POST /api/orders")'s id into order_id
+- expect: 'heading "Order #${order_id}" is visible'
+- expect: table "Order"
+  matches:
+    - row /Customer/:
+      - cell "Alice"
+    - row /Plan/:
+      - cell "Pro"
+
+- claim: The order is persisted and listed
+- GET: /api/orders/${order_id}
+  asserts:
+    - ok: its json's customer is "Alice"
+- visit: /orders
+- expect: table "Orders"
+  matches:
+    - row /1042/
+    - row /Alice/:
+      - cell "Pro"
+      - cell "pending"
+- expect: text "2 orders" is visible
+- extract: the rows of table "Orders" into rows
+- expect: the length of rows is 2
+- expect: (rows mapped to its Customer) contains "Alice"
+
+- claim: Deleting asks for confirmation and removes the row
+- click: button "Delete" in row /Alice/
+  dialog: dismiss
+- expect: row /Alice/ is visible
+- click: button "Delete" in row /Alice/
+  dialog: accept
+- expect: no row /Alice/
+- expect: the status of request "DELETE /api/orders/*" is 200
+- GET: /api/orders
+  asserts:
+    - ok: (its json mapped to its customer) does not contain "Alice"
+
+- claim: Validation errors from the API are shown
+- visit: /orders/new
+- click: button "Save"
+- expect: alert "customer is required" is visible
+
+- claim: The UI handles a failing backend (mocked)
+- route: POST /api/orders
+  respond: { status: 500, json: { error: "database unavailable" } }
+- fill: field "Customer" with "Zed"
+- click: button "Save"
+- expect: alert "database unavailable" is visible
+- expect: request "POST /api/orders"'s mocked is true

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Testkit Receipt</title>
+<style>
+:root{--bg:#EEF0EC;--surface:#fff;--sunk:#F6F7F4;--ink:#16202A;--muted:#5A6570;--line:#D7DBD5;--accent:#2C55C9;--accent-soft:#E3E9FA;--pass:#1E7F4F;--pass-soft:#E1F1E8;--fail:#B93A27;--fail-soft:#F8E4DF;--skip:#8A6A12;--skip-soft:#F4ECD6;
+--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--body:system-ui,-apple-system,"Segoe UI",sans-serif}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0E1317;--surface:#151C22;--sunk:#11171C;--ink:#E4E9ED;--muted:#93A0AB;--line:#26313A;--accent:#86A3FF;--accent-soft:#1D2848;--pass:#5BC58D;--pass-soft:#14301F;--fail:#F08A74;--fail-soft:#3A1C16;--skip:#D9B65A;--skip-soft:#33290F}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--body);padding:16px}
+.wrap{max-width:1360px;margin:0 auto;display:grid;gap:14px}h1,h2{margin:0}code,.mono{font-family:var(--mono);font-size:12.5px}
+.head{display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center}.stamp{font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;border:2px solid currentColor;border-radius:4px;transform:rotate(-2deg)}
+.stamp.ok{color:var(--pass)}.stamp.bad{color:var(--fail)}.meta{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--muted);font-size:12.5px;flex-basis:100%}.meta b{color:var(--ink);font-family:var(--mono);font-weight:500}
+.grid{display:grid;grid-template-columns:280px minmax(0,1fr) 360px;gap:14px;align-items:start}@media(max-width:1100px){.grid{grid-template-columns:260px minmax(0,1fr)}.insp{grid-column:1/-1}}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px}.claims{padding:10px;display:grid;gap:4px}
+.claim>button{width:100%;display:grid;grid-template-columns:18px 1fr auto;gap:8px;text-align:left;background:none;border:0;padding:8px;border-radius:6px;color:inherit;font:inherit;cursor:pointer}
+.claim.on>button{background:var(--accent-soft)}.dot{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;color:var(--surface);font-weight:700}
+.dot.pass{background:var(--pass)}.dot.fail{background:var(--fail)}.dot.skip{background:var(--skip)}.ct{font-weight:600}.cm{font-size:12px;color:var(--muted);font-family:var(--mono)}
+.steps{display:grid;gap:1px;padding:2px 0 6px 26px}.step{display:grid;grid-template-columns:14px 1fr auto;gap:6px;background:none;border:0;text-align:left;padding:3px 6px;border-radius:4px;font:11.5px var(--mono);color:var(--muted);cursor:pointer}
+.step.cur{background:var(--ink);color:var(--bg)}.step .ex{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stage{padding:12px;display:grid;gap:10px}.frame{border:1px solid var(--line);border-radius:8px;background:var(--sunk);aspect-ratio:16/10;display:grid;place-items:center;overflow:hidden;max-width:100%}
+.frame img{width:100%;height:100%;object-fit:contain}.frame .none{color:var(--muted);font-family:var(--mono);font-size:12px;padding:20px;text-align:center}
+.track{display:flex;gap:2px;height:14px}.track button{flex:1;border:0;border-radius:2px;cursor:pointer;background:var(--line)}.track button.pass{background:var(--pass-soft);border:1px solid var(--pass)}.track button.fail{background:var(--fail)}.track button.skip{background:var(--skip-soft)}.track button.cur{outline:2px solid var(--accent)}
+.diff{border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:12px var(--mono);background:var(--sunk);display:grid;gap:2px;white-space:pre-wrap;overflow-wrap:anywhere}
+.k{display:inline-block;width:74px;color:var(--muted)}.add{color:var(--pass)}.del,.err{color:var(--fail)}
+.insp{padding:12px;display:grid;gap:10px}.label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+pre.md{font:12px var(--mono);background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap;overflow:auto;max-height:420px;margin:0}
+.art div{display:flex;justify-content:space-between;gap:8px;font:11.5px var(--mono);padding:2px 0}.art span:last-child{color:var(--muted)}
+button.copy{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:5px;padding:4px 10px;cursor:pointer;justify-self:start}
+</style></head><body>
+<div class="wrap">
+  <header class="head"><span class="stamp" id="stamp"></span><div><h1 id="title"></h1><div class="cm" id="sub"></div></div><div class="meta" id="meta"></div></header>
+  <section class="grid">
+    <nav class="panel claims" id="claims"></nav>
+    <div class="panel stage"><div class="frame" id="frame"></div><div class="track" id="track"></div><div class="diff" id="diff"></div></div>
+    <aside class="panel insp"><div class="label">receipt.md</div><pre class="md" id="md"></pre><button class="copy" id="copy">Copy receipt.md</button>
+      <div class="label">Integrity (sha256)</div><div class="art" id="art"></div><div class="cm">Verify with <code id="verify"></code></div></aside>
+  </section>
+</div>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const M = JSON.parse(document.getElementById('data').textContent);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const steps = M.claims.flatMap((c, ci) => c.steps.map(s => ({...s, ci})));
+let cur = Math.max(0, steps.findIndex(s => s.status === 'fail')), open = steps[cur] ? steps[cur].ci : 0;
+const ok = M.status === 'proven';
+document.getElementById('stamp').textContent = ok ? 'Proven' : 'Not proven';
+document.getElementById('stamp').className = 'stamp ' + (ok ? 'ok' : 'bad');
+document.getElementById('title').textContent = `${M.source.file.split('/').pop()} · ${M.claims.filter(c => c.status === 'pass').length}/${M.claims.length} claims`;
+document.getElementById('sub').textContent = `${M.id} · ${(M.duration_ms/1000).toFixed(1)}s`;
+document.getElementById('meta').innerHTML = [['created', M.created.slice(0,19).replace('T',' ')], ['git', (M.env.git.sha||'–') + (M.env.git.dirty?' (dirty)':'')], ['base_url', M.env.base_url||'–'], ['testkit', M.env.testkit], ['guard', M.guard.errors ? M.guard.errors + ' error(s)' : 'clean'], ['redacted', (M.redactions||[]).reduce((a,r)=>a+r.count,0)], ['chain', M.chain.slice(0,12)+'…']].map(([k,v]) => `<span>${k} <b>${esc(v)}</b></span>`).join('');
+const icon = s => ({pass:'✓', fail:'✗', skip:'–'}[s] || '·');
+function render() {
+  document.getElementById('claims').innerHTML = '<div class="label" style="padding:2px 8px 6px">Claims</div>' + M.claims.map((c, ci) => `<div class="claim ${open===ci?'on':''}"><button data-c="${ci}"><span class="dot ${c.status}">${icon(c.status)}</span><span class="ct">${esc(c.title)}</span><span class="cm">${c.status==='skip'?'not run':(c.ms/1000).toFixed(1)+'s'}</span></button>${open===ci?`<div class="steps">${steps.map((s,i)=>s.ci===ci?`<button class="step ${i===cur?'cur':''}" data-s="${i}"><span>${icon(s.status)}</span><span class="ex">${esc(s.verb)} ${esc(s.expr)}</span><span>${s.status==='skip'?'':s.ms+'ms'}</span></button>`:'').join('')}</div>`:''}</div>`).join('');
+  const s = steps[cur] || {};
+  document.getElementById('frame').innerHTML = s.frame ? `<img alt="screen after: ${esc(s.verb)} ${esc(s.expr)}" src="${s.frame}">` : `<div class="none">${s.status==='skip'?'not run':'no screen captured for this step (API or terminal step)'}</div>`;
+  document.getElementById('track').innerHTML = steps.map((x, i) => `<button class="${x.status} ${i===cur?'cur':''}" data-s="${i}" title="${esc(x.verb+' '+x.expr)}" aria-label="step ${i+1}"></button>`).join('');
+  const r = s.report || {}, rows = [`<div><b>${icon(s.status)} ${esc(s.verb)} ${esc(s.expr)}</b>  <span class="cm">${s.ms ?? ''}ms · ${esc((s.file||'').split('/').pop())}:${s.line}</span></div>`];
+  if (r.url) rows.push(`<div><span class="k">url</span>${esc(r.url[0])} → ${esc(r.url[1])}</div>`);
+  if (r.appeared) rows.push(`<div><span class="k">appeared</span><span class="add">${r.appeared.map(esc).join(', ')}</span></div>`);
+  if (r.gone) rows.push(`<div><span class="k">gone</span><span class="del">${r.gone.map(esc).join(', ')}</span></div>`);
+  if (r.console) rows.push(`<div><span class="k">console</span><span class="err">${r.console.map(esc).join('\n')}</span></div>`);
+  if (r.network) rows.push(`<div><span class="k">network</span>${r.network.map(esc).join(' · ')}</div>`);
+  if (s.error) rows.push(`<div class="err">${esc(s.error)}</div>`);
+  if (s.log && s.status !== 'pass') rows.push(`<div>${esc(s.log)}</div>`);
+  document.getElementById('diff').innerHTML = rows.join('');
+}
+document.addEventListener('click', e => { const c = e.target.closest('[data-c]'), st = e.target.closest('[data-s]');
+  if (st) { cur = +st.dataset.s; open = steps[cur].ci; render(); } else if (c) { open = +c.dataset.c; const f = steps.findIndex(x => x.ci === open); if (f >= 0) cur = f; render(); } });
+document.addEventListener('keydown', e => { if (e.key === 'ArrowRight' && cur < steps.length - 1) cur++; else if (e.key === 'ArrowLeft' && cur > 0) cur--; else return; open = steps[cur].ci; render(); });
+document.getElementById('art').innerHTML = (M.artifacts||[]).map(a => `<div><span>${esc(a.path)}</span><span>${a.sha256.slice(0,12)}…</span></div>`).join('');
+document.getElementById('verify').textContent = `testkit receipt ${M.id} --verify`;
+document.getElementById('md').textContent = M.md || '';
+document.getElementById('copy').onclick = () => navigator.clipboard.writeText(document.getElementById('md').textContent).catch(() => {});
+render();
+</script></body></html>

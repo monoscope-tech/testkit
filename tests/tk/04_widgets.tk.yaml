@@ -1,0 +1,67 @@
+# Browser interactions beyond forms: keyboard, typing, uploads, drag, frames, popups, modals, downloads, guard.
+- meta: { base_url: "http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: Checkboxes, disclosure and buttons change state
+- visit: /widgets
+- check: checkbox "Newsletter"
+- expect: checkbox "Newsletter" is checked
+- uncheck: checkbox "Newsletter"
+- expect: checkbox "Newsletter" is not checked
+- click: button "More"
+- expect: text "Hidden details" is visible
+- dblclick: button /^Count/
+- expect: 'button "Count: 2" is visible'
+- expect: testid "footer-note" is visible
+
+- claim: Typing drives live search and keyboard shortcuts focus fields
+- press: ctrl+k
+- expect: field "Search" is focused
+- type: al
+- expect: list "Results"
+  matches:
+    - listitem "Alice"
+- expect: no listitem "Bob"
+- press: Backspace Backspace
+- expect: the length of listitem in list "Results" is 3
+
+- claim: Files upload and cards drag between regions
+- upload: field "Avatar" with "../app/public/inner.html"
+- expect: text "Selected inner.html" is visible
+- drag: text exactly "Card" to region "Done"
+- expect: the @data-has of region "Done" is "card"
+
+- claim: Frames, modals and popups are reachable
+- visit: /frames
+- click: button "Pay now" in frame "pay"
+- expect: button "Paid" in frame "pay" is visible
+- visit: /popup
+- click: button "Accept" in dialog "Cookie consent"
+- expect: no dialog "Cookie consent"
+- click: button "Behind modal"
+- expect: button "Clicked" is visible
+- click: link "Open orders in new tab"
+- wait: for popup into orders_tab
+- expect: heading "Orders" is visible
+  session: orders_tab
+- visit: /orders
+  session: default
+- click: link "Export CSV"
+- wait: for download into csv
+- expect: csv ends with "orders.csv"
+
+- claim: The guard catches console errors unless they are allowed
+- visit: /broken
+- expect: no console errors
+- click: button "Explode"
+  allow: [console errors, page errors]
+- expect: some console errors
+- expect: all console messages contains "ready"
+
+- claim: Waits and expects tolerate slow pages
+- visit: /slow
+- expect: status "Ready" is visible
+- expect: button "Continue" is enabled
+- emulate: dark
+- emulate: desktop

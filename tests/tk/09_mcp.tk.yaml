@@ -1,0 +1,34 @@
+# The MCP server, driven over stdio exactly as an agent would.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: An agent can discover the tools and the grammar
+- spawn: ${tk} mcp
+  session: mcp
+- type: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
+- press: Enter
+- wait: for text /"serverInfo"/ in mcp
+- type: '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+- press: Enter
+- wait: for text /"name":"snapshot"/ in mcp
+
+- claim: An agent can act, observe and prove through tools
+- type: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"step","arguments":{"line":"visit: http://127.0.0.1:${port}/login"}}}'
+- press: Enter
+- wait: for text /✓ visit/ in mcp or 30s
+- type: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"snapshot","arguments":{}}}'
+- press: Enter
+- wait: for text /textbox \\"Email\\"/ in mcp
+- type: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"step","arguments":{"yaml":"- click: button \"Nope\"\n  timeout: 1s","session":"default"}}}'
+- press: Enter
+- wait: for text /E_NOT_FOUND/ in mcp or 20s
+- type: '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"claim","arguments":{"title":"The login page loads"}}}'
+- press: Enter
+- type: '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"step","arguments":{"line":"expect: heading \"Sign in\" is visible"}}}'
+- press: Enter
+- wait: for text /✓ expect/ in mcp
+- type: '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"claim","arguments":{"title":"end"}}}'
+- press: Enter
+- wait: for text /Proven/ in mcp or 20s
+- press: ctrl+d

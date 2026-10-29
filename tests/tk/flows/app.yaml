@@ -1,0 +1,6 @@
+# Starts the fixture app on a free port and resets its data. Exports `port`.
+- spawn: python3 ../../app/server.py --port 0
+  session: app
+  ready: for text /listening on :(\d+)/ or 20s
+- extract: its match[1] into port
+- POST: http://127.0.0.1:${port}/api/reset

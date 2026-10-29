@@ -1,0 +1,9 @@
+- claim: The dashboard greets the user by name
+- visit: /login
+- GET: /api/me
+  asserts:
+    - ok: its status is 401
+- expect: heading "Welcome, Ada" is visible
+  timeout: 1s
+- claim: Orders are listed
+- visit: /orders

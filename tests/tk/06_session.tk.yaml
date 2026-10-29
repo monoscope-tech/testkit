@@ -1,0 +1,65 @@
+# The CLI session daemon: one step per command, snapshot refs, recording with stable locators and no secrets, replay.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN} --session selftest", rec: .testkit/selftest/recorded.tk.yaml }
+- call: flows/app.yaml
+  exports: [port]
+- exec: ${tk} session stop; rm -f ${rec}
+
+- claim: CLI steps share one live browser session
+- exec: ${tk} visit http://127.0.0.1:${port}/login --record ${rec}
+  asserts:
+    - ok: its exit is 0
+    - ok: its stdout contains "✓ visit"
+- exec: ${tk} snapshot
+  asserts:
+    - ok: its stdout contains "textbox \"Email\""
+    - ok: its stdout matches /\[ref=e\d+\]/
+- exec: ${tk} snapshot | grep 'textbox "Email"' | grep -o 'ref=e[0-9]*' | cut -d= -f2
+- extract: its stdout into email_ref
+- exec: ${tk} fill @${email_ref} --value admin@acme.com --record ${rec}
+  asserts:
+    - ok: its exit is 0
+    - ok: its stdout contains "recorded →"
+- exec: ${tk} fill 'field "Password"' --value hunter22 --record ${rec}
+  asserts:
+    - ok: its stdout contains "$${env.PASSWORD}"
+- exec: ${tk} click 'button exactly "Sign in"' --record ${rec}
+  asserts:
+    - ok: its stdout contains "url      /login → /dashboard"
+    - ok: its stdout contains "appeared"
+- exec: ${tk} expect 'heading "Dashboard" is visible' --record ${rec}
+  asserts:
+    - ok: its exit is 0
+
+- claim: Discovery commands help an agent decide the next step
+- exec: ${tk} find Orders
+  asserts:
+    - ok: its stdout contains "link \"Orders\""
+- exec: ${tk} explain 'heading "Dashboard" is visible'
+  asserts:
+    - ok: 'its stdout contains "\"matches\": 1"'
+    - ok: 'its stdout contains "currently: true"'
+- exec: ${tk} observe network
+  asserts:
+    - ok: its stdout contains "/api/me"
+- exec: ${tk} suggest
+  asserts:
+    - ok: its exit is 0
+- exec: ${tk} expect 'heading "Nope" is visible within 1s'
+  timeout: 20s
+  asserts:
+    - ok: its exit is 1
+    - ok: its stdout contains "E_ASSERT"
+- exec: ${tk} session status
+  asserts:
+    - ok: its stdout contains "tabs"
+- exec: ${tk} session stop
+
+- claim: The recording replays as a normal test with stable locators and no secrets
+- expect: file "${rec}"'s text contains "fill: textbox \"Email\" with \"admin@acme.com\""
+- expect: file "${rec}"'s text contains "$${env.PASSWORD}"
+- expect: file "${rec}"'s text does not contain "hunter22"
+- expect: file "${rec}"'s text does not contain "@e"
+- exec: PASSWORD=hunter22 ${env.TESTKIT_BIN} test ${rec}
+  asserts:
+    - ok: its exit is 0
+    - ok: its stdout contains "5 passed, 0 failed"

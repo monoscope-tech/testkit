@@ -1,0 +1,44 @@
+# Performance and DevTools: vitals, metrics, measure milestones, traces, profiles, emulation, a11y.
+- meta: { base_url: "http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: Web vitals and runtime metrics are assertable
+- visit: /shift
+- expect: the cls of page is greater than 0
+- expect: the lcp of page is less than 5s
+- expect: the nodes of page is greater than 10
+- expect: the heap of page is greater than 0
+
+- claim: Interactions can be measured
+- click: button "Add"
+  measure: true
+- expect: its duration is less than 2s
+- expect: its dom is greater than 0
+- expect: no long tasks over 500ms
+
+- claim: Traces and profiles are captured for DevTools
+- trace: start
+- click: button "Add"
+- trace: stop into selftest
+- expect: its events is greater than 0
+- expect: file "${it.file}" exists
+- profile: start
+- click: button "Add"
+- profile: stop into selftest
+- expect: its nodes is greater than 0
+
+- claim: Emulation and throttling apply
+- throttle: cpu 2x
+- network: fast 3g
+- visit: /widgets
+- network: online
+- throttle: cpu 1x
+- emulate: iPhone 15
+- expect: (the innerWidth of page) is null or true
+- emulate: desktop
+
+- claim: Accessibility problems are reported
+- visit: /a11y
+- expect: the length of a11y violations is greater than 2
+- expect: (a11y violations mapped to its rule) contains "image-alt"

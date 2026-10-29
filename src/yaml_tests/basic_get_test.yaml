@@ -1,7 +1,0 @@
-asserts:
-  - type: "IsOk"
-    value: "$.resp.status == 200"
-  - type: "IsArray"
-    value: "$.resp.json.items"
-  - type: "IsString"
-    value: "$.resp.json.message"

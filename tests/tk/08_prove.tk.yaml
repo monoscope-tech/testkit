@@ -1,0 +1,41 @@
+# Proofs: receipts with claims, GIF evidence, redaction, verification and tamper detection.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN} --base-url http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: A passing flow produces a verifiable receipt
+- exec: ${tk} prove fixtures/proof.yaml
+  env: { PASS: hunter22 }
+  asserts:
+    - ok: its exit is 0
+    - ok: its stdout contains "✅ Proven"
+    - ok: its stdout contains "2/2 claims"
+    - ok: its stdout contains "claim1.gif"
+- exec: ls -t .testkit/receipts | head -1
+- extract: its stdout into rid
+- expect: file ".testkit/receipts/${rid}/receipt.json"'s json's status is "proven"
+- expect: the length of file ".testkit/receipts/${rid}/receipt.json"'s json's claims is 2
+- expect: file ".testkit/receipts/${rid}/media/claim1.gif" exists
+- expect: file ".testkit/receipts/${rid}/receipt.html"'s text contains "Proven"
+- expect: file ".testkit/receipts/${rid}/receipt.json"'s text does not contain "hunter22"
+- expect: file ".testkit/receipts/${rid}/source.tk.yaml"'s text contains "$${env.PASS}"
+- exec: ${tk} receipt ${rid} --verify
+  asserts:
+    - ok: its exit is 0
+    - ok: its stdout contains "✓ verified"
+
+- claim: Tampering with evidence is detected
+- exec: echo tamper >> .testkit/receipts/${rid}/media/claim1.gif
+- exec: ${tk} receipt ${rid} --verify
+  asserts:
+    - ok: its exit is 1
+    - ok: its stdout contains "media/claim1.gif"
+
+- claim: A failing flow is reported as not proven, later claims not run
+- exec: ${tk} prove fixtures/proof_fails.yaml --no-video
+  asserts:
+    - ok: its exit is 1
+    - ok: its stdout contains "❌ Not proven"
+    - ok: its stdout contains "not run"
+    - ok: its stdout contains "proof_fails.yaml:6"
+    - ok: its stdout contains "hint"

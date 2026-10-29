@@ -1,9 +1,18 @@
 // src/lib.rs
 
 // Declare modules in the order needed by sibling modules.
-pub mod base_browser;
-pub mod base_cli;
 pub mod base_request;
+pub mod browser;
+pub mod cli;
+pub mod expr;
+pub mod item;
+pub mod mcp;
+pub mod receipt;
+pub mod record;
+pub mod report;
+pub mod runner;
+pub mod session;
+pub mod term;
 
 // Optionally re-export items:
 pub use base_request::{run, run_json, ConfigVariable, TestContext};
@@ -14,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn haskell_binding(
     content: *const c_char,
     collection_id: *const c_char,
@@ -28,7 +38,7 @@ pub extern "C" fn haskell_binding(
     let cont_rs = unsafe { CStr::from_ptr(content) }.to_str().unwrap_or_default().to_owned();
 
     let col_path: Option<PathBuf> =
-        unsafe { CStr::from_ptr(collection_id) }.to_str().ok().map(|s| PathBuf::from(s));
+        unsafe { CStr::from_ptr(collection_id) }.to_str().ok().map(PathBuf::from);
 
     let local_vars_str = unsafe { CStr::from_ptr(local_vars) }.to_str().unwrap_or("{}");
 
@@ -59,6 +69,7 @@ pub extern "C" fn haskell_binding(
 }
 
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn free_haskell_binding_result(s: *mut c_char) {
     if s.is_null() {
         return;

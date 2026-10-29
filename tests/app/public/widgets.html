@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Acme</title><style>body{font:15px system-ui;margin:24px} .alert{background:#e1f1e8;padding:6px} table td,table th{padding:4px 10px;text-align:left} .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center} .modal div{background:#fff;padding:20px}</style></head><body><header><span class="brand">Acme</span><nav aria-label="Main"><a href="/dashboard">Dashboard</a> <a href="/orders">Orders</a> <a href="/widgets">Widgets</a></nav></header><main><h1>Widgets</h1>
+<label><input type="checkbox" id="news"> Newsletter</label>
+<details><summary>More</summary><p>Hidden details</p></details>
+<label>Search <input type="search" id="q" placeholder="Search orders"></label><ul id="results" aria-label="Results"></ul>
+<label>Avatar <input type="file" id="avatar"></label><p id="file"></p>
+<div><button id="counter">Count: 0</button></div>
+<div id="list" aria-label="Board"><div draggable="true" id="card">Card</div><div id="done" role="region" aria-label="Done" style="min-height:40px;border:1px dashed #999">Done</div></div>
+<p data-testid="footer-note">Footer note</p>
+<script>
+let n = 0; document.getElementById('counter').onclick = e => e.target.textContent = 'Count: ' + (++n);
+document.getElementById('q').addEventListener('input', e => { const v = e.target.value; document.getElementById('results').innerHTML = ['Alice','Bob','Carol'].filter(x => x.toLowerCase().includes(v.toLowerCase())).map(x => '<li>' + x + '</li>').join(''); });
+document.getElementById('avatar').addEventListener('change', e => document.getElementById('file').textContent = 'Selected ' + e.target.files[0].name);
+const card = document.getElementById('card'), done = document.getElementById('done');
+card.addEventListener('dragstart', e => e.dataTransfer.setData('text', 'card'));
+done.addEventListener('dragover', e => e.preventDefault());
+done.addEventListener('drop', e => { e.preventDefault(); done.appendChild(card); done.setAttribute('data-has', 'card'); });
+document.addEventListener('keydown', e => { if (e.key === 'k' && (e.ctrlKey || e.metaKey)) document.getElementById('q').focus(); });
+</script></main></body></html>

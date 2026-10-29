@@ -1,0 +1,4 @@
+- claim: First claim fails
+- exec: "false"
+- claim: Second claim is not run
+- exec: echo never

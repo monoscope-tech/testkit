@@ -1,0 +1,83 @@
+# API surface: templates, typed + expression asserts, exports, request subjects, mocking, iterations, shapes.
+- meta: { base_url: "http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: The orders API creates, reads and deletes orders
+- POST: /api/orders
+  json:
+    customer: Dana
+    plan: Pro
+  asserts:
+    - ok: its status is 201
+    - ok: its json's customer is "Dana"
+    - number: $.resp.json.id
+    - ok: $.resp.json.plan == "Pro"
+  exports:
+    order_id: its json's id
+- GET: /api/orders/${order_id}
+  asserts:
+    - ok: its json's id is order_id
+    - string: $.resp.json.customer
+    - ok: its duration is less than 2s
+- expect: the status of request "GET /api/orders/*" is 200
+- expect: the json contains "Dana"
+- extract: its json's plan into plan
+- expect: plan is "Pro" and plan starts with "p" ignoring case
+- GET: /api/orders
+  asserts:
+    - array: $.resp.json
+    - ok: the length of its json is 2
+    - ok: the length of (its json where its status is "paid") is 1
+    - ok: (its json mapped to its customer) contains "Bob"
+    - contains: $.resp.raw ~ Dana
+- expect: json
+  matches:
+    - { customer: Bob, status: paid }
+    - { customer: Dana }
+- DELETE: /api/orders/${order_id}
+  asserts:
+    - ok: its json's deleted is true
+- GET: /api/orders/${order_id}
+  asserts:
+    - ok: its status is 404
+
+- claim: Validation and auth errors are reported
+- POST: /api/orders
+  json: { plan: Pro }
+  asserts:
+    - ok: its status is 422
+    - ok: its json's error contains "customer"
+- GET: /api/me
+  asserts:
+    - ok: its status is 401
+
+- claim: Routes mock API responses
+- route: GET /api/orders
+  respond:
+    status: 503
+    json: { error: maintenance }
+- GET: /api/orders
+  asserts:
+    - ok: its status is 503
+    - ok: its mocked is true
+- unroute: GET /api/orders
+- route: GET /api/orders/1042
+  modify:
+    json: { status: refunded }
+- GET: /api/orders/1042
+  asserts:
+    - ok: its json's status is "refunded"
+    - ok: its json's customer is "Bob"
+
+- claim: Iterations repeat a step with parameters
+- POST: /api/orders
+  iterations:
+    - { who: Eve }
+    - { who: Finn }
+  json: { customer: "${who}" }
+  asserts:
+    - ok: its status is 201
+- GET: /api/orders
+  asserts:
+    - ok: the length of its json is 3

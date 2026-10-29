@@ -1,0 +1,2 @@
+# fails on the first run, passes on the retry
+- exec: if [ -f ../.testkit/selftest/flaky.flag ]; then echo ok; else mkdir -p ../.testkit/selftest && touch ../.testkit/selftest/flaky.flag && exit 1; fi

@@ -15,7 +15,7 @@ serde_yaml = "0.9"
 serde_json = "1.0"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "http2"], default-features = false }
 tokio = { version = "1.29.1", features = ["full"] }
-clap = { version = "4.3.10", features = ["derive"] }
+clap = { version = "4.3.10", features = ["derive", "env"] }
 rusty-hook = "0.11.2"
 env_logger = "0.11.3"
 log = "0.4.19"
@@ -36,6 +36,13 @@ chrono = "0.4.26"
 walkdir = "2.3.3"
 chromiumoxide = "0.7"
 futures-util = "0.3"
+winnow = "0.7"
+portable-pty = "0.9"
+vt100 = "0.15"
+sha2 = "0.10"
+gif = "0.13"
+png = "0.17"
+base64 = "0.22"
 
 # core-foundation = {git="https://github.com/servo/core-foundation-rs", rev="9effb788767458ad639ce36229cc07fd3b1dc7ba"}
 [dev-dependencies]

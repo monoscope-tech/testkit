@@ -1,7 +1,0 @@
-# custom_expression_test.yaml
-- title: "Custom Expression Test"
-  GET: "https://example.com/api/score"
-  asserts:
-    # This custom assertion uses a Rhai expression.
-    # It verifies that the score returned in the JSON is greater than 80.
-    - custom: "$.resp.json.score > 80"

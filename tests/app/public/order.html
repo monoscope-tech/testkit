@@ -1,0 +1,7 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Acme</title><style>body{font:15px system-ui;margin:24px} .alert{background:#e1f1e8;padding:6px} table td,table th{padding:4px 10px;text-align:left} .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center} .modal div{background:#fff;padding:20px}</style></head><body><header><span class="brand">Acme</span><nav aria-label="Main"><a href="/dashboard">Dashboard</a> <a href="/orders">Orders</a> <a href="/widgets">Widgets</a></nav></header><main><div id="flash"></div><h1 id="h">Order</h1><table aria-label="Order"><tbody id="t"></tbody></table>
+<script>
+const id = location.pathname.split('/').pop();
+if (location.search.includes('created')) document.getElementById('flash').innerHTML = '<div class="alert" role="alert">Order created</div>';
+fetch('/api/orders/' + id).then(r => r.json()).then(o => { document.getElementById('h').textContent = 'Order #' + o.id;
+  document.getElementById('t').innerHTML = '<tr><th>Customer</th><td>' + o.customer + '</td></tr><tr><th>Plan</th><td>' + o.plan + '</td></tr>'; });
+</script></main></body></html>

@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Acme</title><style>body{font:15px system-ui;margin:24px} .alert{background:#e1f1e8;padding:6px} table td,table th{padding:4px 10px;text-align:left} .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center} .modal div{background:#fff;padding:20px}</style></head><body><header><span class="brand">Acme</span><nav aria-label="Main"><a href="/dashboard">Dashboard</a> <a href="/orders">Orders</a> <a href="/widgets">Widgets</a></nav></header><main><div class="alert" role="alert">Welcome back</div><h1>Dashboard</h1><p id="me">…</p>
+<a href="/orders/new" role="button">New order</a> <a href="/popup">Popup demo</a>
+<script>fetch('/api/me').then(r => r.json()).then(j => document.getElementById('me').textContent = 'Signed in as ' + (j.email || 'nobody'));</script>
+</main></body></html>
