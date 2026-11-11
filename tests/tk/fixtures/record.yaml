@@ -1,0 +1,7 @@
+- route: GET /api/orders
+  record: ../.testkit/selftest/orders.fixture.json
+- GET: /api/orders
+  asserts:
+    - ok: the length of its json is 1
+- visit: /orders
+- expect: text "1 orders" is visible

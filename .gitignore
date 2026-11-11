@@ -19,3 +19,5 @@ node_modules/
 .vscode
 .env
 .DS_Store
+# testkit artifacts (sessions, receipts, shots, downloads, devtools)
+.testkit/

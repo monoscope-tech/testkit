@@ -1,0 +1,68 @@
+# Terminal surface: one-shot commands, interactive programs, screens, colors, signals and testkit's own REPL.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: One-shot commands expose exit code, output and timing
+- exec: printf 'a\nb\n'
+- expect: the length of its stdout's lines is 2
+- exec: echo oops >&2; exit 4
+  allow: [exit]
+- expect: its exit is 4 and its stderr is "oops"
+- exec: echo "$${HOME}" ${port}
+- expect: its stdout ends with "${port}"
+- expect: its stdout does not contain "$${HOME}"
+- exec: "false"
+  expect: its exit is 1
+
+- claim: Interactive prompts can be driven line by line
+- spawn: ./fixtures/wizard.sh
+  session: wizard
+- wait: for text "Name?"
+- enter: Ada
+- expect: text "Hello Ada" in wizard is visible
+- enter: yes
+- expect: the exit of wizard is 0
+- expect: all output in wizard contains "Done"
+
+- claim: A REPL keeps state and its screen can be asserted structurally
+- spawn: python3 -q -i
+  session: py
+  prompt: '>>> $'
+- enter: x = 40
+- enter: x + 2
+- expect: it contains "42"
+- expect: screen
+  matches:
+    - />>> x = 40/
+    - /^42$/
+- press: ctrl+d
+- expect: the exit of py is 0
+
+- claim: Colors and cursor are readable from a TUI screen
+- spawn: printf '\033[31mERROR\033[0m plain\n'; sleep 30
+  session: tui
+  size: 80x24
+- wait: for text "ERROR"
+- expect: the color of text "ERROR" in tui is "red"
+- expect: the row of the cursor is 2
+- resize: 100x30
+- signal: SIGTERM to tui
+- expect: the exit of tui is not 0
+
+- claim: testkit's REPL drives a browser session interactively
+- exec: ${tk} --session replt session stop
+- spawn: ${tk} --session replt repl
+  session: repl
+- wait: for text "testkit›" in repl
+- enter: visit http://127.0.0.1:${port}/login
+- wait: for text "✓ visit" in repl or 30s
+- enter: expect heading "Sign in" is visible
+- wait: for text "✓ expect" in repl or 15s
+- enter: :quit
+- expect: the exit of repl is 0
+- exec: ${tk} --session replt session stop
+
+- claim: Servers started by tests can be stopped cleanly
+- signal: SIGINT to app
+- expect: the exit of app is not null

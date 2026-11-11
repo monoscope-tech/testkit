@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Acme</title><style>body{font:15px system-ui;margin:24px} .alert{background:#e1f1e8;padding:6px} table td,table th{padding:4px 10px;text-align:left} .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center} .modal div{background:#fff;padding:20px}</style></head><body><header><span class="brand">Acme</span><nav aria-label="Main"><a href="/dashboard">Dashboard</a> <a href="/orders">Orders</a> <a href="/widgets">Widgets</a></nav></header><main><h1>Orders</h1><a href="/orders/new" role="button">New order</a> <a href="/download" download>Export CSV</a>
+<table aria-label="Orders"><thead><tr><th>#</th><th>Customer</th><th>Plan</th><th>Status</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table>
+<p id="count"></p>
+<script>
+async function load() {
+  const os = await (await fetch('/api/orders')).json();
+  document.getElementById('rows').innerHTML = os.map(o => '<tr><td>' + o.id + '</td><td>' + o.customer + '</td><td>' + o.plan + '</td><td>' + o.status + '</td><td><button data-id="' + o.id + '">Edit</button> <button data-del="' + o.id + '">Delete</button></td></tr>').join('');
+  document.getElementById('count').textContent = os.length + ' orders';
+}
+document.addEventListener('click', async e => {
+  const d = e.target.dataset.del;
+  if (d && confirm('Delete order ' + d + '?')) { await fetch('/api/orders/' + d, {method: 'DELETE'}); load(); }
+});
+load();
+</script></main></body></html>

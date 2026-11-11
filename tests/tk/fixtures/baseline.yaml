@@ -1,0 +1,2 @@
+- visit: /orders
+- expect: the nodes of page is within 50% of baseline "orders-nodes"

@@ -1,8 +1,0 @@
-# timeout_test.yaml
-- title: "Timeout Assertion Test"
-  GET: "https://example.com/api/status"
-  asserts:
-    # The timeout assertion will repeatedly check that the response status becomes "ready".
-    - timeout:
-        condition: "$.resp.json.status == 'ready'"
-        timeout_secs: 5

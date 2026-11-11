@@ -1,0 +1,3 @@
+- exec: echo hi
+  asserts:
+    - ok: its stdout is "bye"

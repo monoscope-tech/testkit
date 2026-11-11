@@ -1,0 +1,44 @@
+# Two of Playwright's own TodoMVC tests (microsoft/playwright examples/todomvc/tests), comments removed:
+#
+#   test('should add multiple todos', async ({ page }) => {
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).fill('Buy milk');
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).press('Enter');
+#     await expect(page.getByText('Buy milk')).toBeVisible();
+#     await expect(page.getByText('1 item left')).toBeVisible();
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).fill('Walk the dog');
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).press('Enter');
+#     await expect(page.getByText('Buy milk')).toBeVisible();
+#     await expect(page.getByText('Walk the dog')).toBeVisible();
+#     await expect(page.getByText('2 items left')).toBeVisible();
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).fill('Finish report');
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).press('Enter');
+#     await expect(page.getByText('Buy milk')).toBeVisible();
+#     await expect(page.getByText('Walk the dog')).toBeVisible();
+#     await expect(page.getByText('Finish report')).toBeVisible();
+#     await expect(page.getByText('3 items left')).toBeVisible();
+#   });
+#
+#   test('should-complete-single-todo', async ({ page }) => {
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).fill('Buy groceries');
+#     await page.getByRole('textbox', { name: 'What needs to be done?' }).press('Enter');
+#     await expect(page.getByText('Buy groceries')).toBeVisible();
+#     await expect(page.getByText('1 item left')).toBeVisible();
+#     await page.getByRole('checkbox', { name: 'Toggle Todo' }).click();
+#     await expect(page.getByRole('checkbox', { name: 'Toggle Todo' })).toBeChecked();
+#     await expect(page.getByText('0 items left')).toBeVisible();
+#     await expect(page.getByRole('button', { name: 'Clear completed' })).toBeVisible();
+#   });
+
+- claim: Several todos can be added
+- visit: https://demo.playwright.dev/todomvc
+- fill: What needs to be done? with "Buy milk"
+- press: Enter
+  expect: '"Buy milk" and "1 item left"'
+- enter: Walk the dog
+  expect: '"Buy milk" and "Walk the dog" and "2 items left"'
+- enter: Finish report
+  expect: '"Buy milk" and "Walk the dog" and "Finish report" and "3 items left"'
+
+- claim: A todo can be completed
+- check: Toggle Todo in listitem "Buy milk"
+- expect: '"2 items left" and button "Clear completed"'

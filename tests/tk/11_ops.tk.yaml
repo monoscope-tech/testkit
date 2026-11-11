@@ -1,0 +1,104 @@
+# Operating testkit in CI and with agents: retries, sharding, stdin, CLI claims, baselines, determinism, attach.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN}", url: "http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+- exec: rm -rf .testkit/selftest && mkdir -p .testkit/selftest
+
+- claim: A pass after a retry is reported as flaky, never as a plain pass
+- exec: ${tk} test fixtures/flaky.yaml --retries 1
+  expect:
+    - its exit is 0
+    - its stdout contains "flaky"
+- exec: rm -f .testkit/selftest/flaky.flag; ${tk} test fixtures/flaky.yaml --retries 1 --fail-on-flaky
+  expect: its exit is 1
+
+- claim: Files run in parallel, in shards and repeatedly
+- exec: ${tk} test fixtures/pass_a.yaml fixtures/pass_b.yaml -j 2
+  expect: its stdout contains "2 passed"
+- exec: ${tk} test fixtures/pass_a.yaml fixtures/pass_b.yaml --shard 2/2
+  expect:
+    - its stdout contains "pass_b.yaml"
+    - its stdout does not contain "pass_a.yaml"
+- exec: ${tk} test fixtures/pass_a.yaml --repeat 3
+  expect: its stdout contains "3 passed"
+
+- claim: Steps can be piped in and claims proven from the CLI
+- exec: 'printf -- ''- exec: echo piped\n- expect: its stdout is "piped"\n'' | ${tk} --session ops run -'
+  expect:
+    - its exit is 0
+    - its stdout contains "✓ expect"
+- exec: ${tk} --session ops claim The login page renders
+- exec: ${tk} --session ops visit ${url}/login
+  expect: 'its stdout contains "- textbox \"Email\" [ref=e"'
+- exec: ${tk} --session ops expect 'heading "Sign in" is visible'
+- exec: ${tk} --session ops claim end
+  expect:
+    - its stdout contains "✅ Proven"
+    - its stdout contains "receipt →"
+- exec: ${tk} --session ops session stop
+
+- claim: Perf baselines are recorded and enforced
+- exec: ${tk} --base-url ${url} baseline update fixtures/baseline.yaml
+  expect: its stdout contains "orders-nodes"
+- expect: file ".testkit/baselines.json"'s json's "orders-nodes" is greater than 10
+- exec: ${tk} --base-url ${url} test fixtures/baseline.yaml
+  expect: its exit is 0
+
+- claim: CI mode pins the clock, randomness and timezone
+- exec: CI=true ${tk} --base-url ${url} test fixtures/clock.yaml
+  expect: its exit is 0
+
+- claim: Golden files can be refreshed
+- exec: echo v1 > .testkit/selftest/out.txt
+- expect: file ".testkit/selftest/out.txt"
+  matches: .testkit/selftest/out.golden
+- exec: echo v2 > .testkit/selftest/out.txt
+- exec: 'printf -- ''- expect: file "out.txt"\n  matches: out.golden\n  timeout: 0s\n'' > .testkit/selftest/golden.yaml && ${tk} test .testkit/selftest/golden.yaml'
+  expect:
+    - its exit is 1
+    - its stdout contains "+ v2"
+- exec: ${tk} test .testkit/selftest/golden.yaml --update-golden && ${tk} test .testkit/selftest/golden.yaml
+
+- claim: Agents can attach to a Chrome that is already running
+- spawn: '"$${CHROME:-$(command -v google-chrome || command -v chromium || echo "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")}" --headless=new --no-sandbox --remote-debugging-port=9333 --user-data-dir=.testkit/selftest/chrome-profile about:blank'
+  session: chrome
+  ready: for text /DevTools listening/ or 20s
+- exec: ${tk} --session att session attach http://127.0.0.1:9333
+  expect: its stdout contains "attached"
+- exec: ${tk} --session att visit ${url}/login
+  expect: its exit is 0
+- exec: ${tk} --session att expect 'heading "Sign in" is visible'
+- exec: ${tk} --session att session stop
+- signal: SIGTERM to chrome
+
+- claim: A policy keeps agents inside allowed origins and commands
+- exec: ${tk} test fixtures/policy.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "E_POLICY navigation to https://example.com/"
+    - its stdout contains "policy.origins"
+- exec: ${tk} test fixtures/policy_exec.yaml
+  expect: its stdout contains "E_POLICY `echo hi`"
+- exec: ${tk} --base-url ${url} test fixtures/policy_req.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "forbidden by policy.forbid"
+- GET: /api/orders/1042
+  expect: its status is 200
+
+- claim: Real responses can be recorded into fixtures and replayed
+- exec: rm -f .testkit/selftest/orders.fixture.json; ${tk} --base-url ${url} test fixtures/record.yaml
+  expect: its exit is 0
+- expect: file ".testkit/selftest/orders.fixture.json"'s json[0].customer is "Bob"
+- POST: /api/orders
+  json: { customer: Zara }
+- exec: ${tk} --base-url ${url} test fixtures/record.yaml
+  expect: its exit is 0
+- exec: ${tk} --base-url ${url} test fixtures/record.yaml --update-golden
+  expect: its exit is 1
+- expect: the length of file ".testkit/selftest/orders.fixture.json"'s json is 2
+
+- claim: Agent instructions can be installed into a repo
+- exec: mkdir -p .testkit/selftest/repo && cd .testkit/selftest/repo && ${tk} init --agents
+- expect: file ".testkit/selftest/repo/AGENTS.md"'s text contains "testkit grammar"
+- expect: file ".testkit/selftest/repo/.claude/skills/testkit/SKILL.md" exists

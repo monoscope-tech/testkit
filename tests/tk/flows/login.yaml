@@ -1,0 +1,6 @@
+# Signs in through the UI. Params: user, pass.
+- visit: /login
+- fill: Email with "${user}"
+- fill: Password with "${pass}"
+- click: Sign in
+- expect: heading "Dashboard" is visible

@@ -1,0 +1,87 @@
+# The CLI session daemon: one step per command, snapshot refs, recording with stable locators and no secrets, replay.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN} --session selftest", rec: .testkit/selftest/recorded.tk.yaml }
+- call: flows/app.yaml
+  exports: [port]
+- exec: ${tk} session stop; rm -f ${rec}
+
+- claim: CLI steps share one live browser session
+- exec: ${tk} visit http://127.0.0.1:${port}/login --record ${rec}
+  expect:
+    - its exit is 0
+    - its stdout contains "✓ visit"
+- exec: ${tk} snapshot
+  expect:
+    - its stdout contains "textbox \"Email\""
+    - its stdout matches /\[ref=e\d+\]/
+- exec: ${tk} snapshot | grep 'textbox "Email"' | grep -o 'ref=e[0-9]*' | cut -d= -f2
+- extract: its stdout into email_ref
+- exec: ${tk} fill @${email_ref} --value admin@acme.com --record ${rec}
+  expect:
+    - its exit is 0
+    - its stdout contains "recorded →"
+- exec: ${tk} fill 'field "Password"' --value hunter22 --record ${rec}
+  expect: its stdout contains "$${env.PASSWORD}"
+- exec: ${tk} click 'button exactly "Sign in"' --record ${rec}
+  expect:
+    - its stdout contains "url      /login → /dashboard"
+    - its stdout contains "appeared"
+- exec: ${tk} expect 'heading "Dashboard" is visible' --record ${rec}
+  expect: its exit is 0
+
+- claim: Discovery commands help an agent decide the next step
+- exec: ${tk} find Orders
+  expect: its stdout contains "link \"Orders\""
+- exec: ${tk} explain 'heading "Dashboard" is visible'
+  expect:
+    - 'its stdout contains "\"matches\": 1"'
+    - 'its stdout contains "currently: true"'
+- exec: ${tk} observe network
+  expect: its stdout contains "/api/me"
+- exec: ${tk} suggest
+  expect: its exit is 0
+- exec: ${tk} expect 'heading "Nope" is visible within 1s'
+  timeout: 20s
+  expect:
+    - its exit is 1
+    - its stdout contains "E_ASSERT"
+- exec: ${tk} session status
+  expect: its stdout contains "tabs"
+- exec: ${tk} session stop
+
+- claim: The recording replays as a normal test with stable locators and no secrets
+- expect: 'file "${rec}"''s text contains "fill: textbox \"Email\" with \"admin@acme.com\""'
+- expect: file "${rec}"'s text contains "$${env.PASSWORD}"
+- expect: file "${rec}"'s text does not contain "hunter22"
+- expect: file "${rec}"'s text does not contain "@e"
+- exec: PASSWORD=hunter22 ${env.TESTKIT_BIN} test ${rec}
+  expect:
+    - its exit is 0
+    - its stdout contains "5 passed, 0 failed"
+
+- claim: Recorded values that came from responses become extract steps
+- exec: ${tk} session stop; rm -f .testkit/selftest/created.tk.yaml
+- exec: ${tk} visit http://127.0.0.1:${port}/orders/new --record .testkit/selftest/created.tk.yaml
+- exec: ${tk} fill 'field "Customer"' --value Ivy --record .testkit/selftest/created.tk.yaml
+- exec: ${tk} click 'button "Save"' --record .testkit/selftest/created.tk.yaml
+- GET: /api/orders
+- extract: its json[-1]'s id into new_id
+- exec: ${tk} visit http://127.0.0.1:${port}/orders/${new_id} --record .testkit/selftest/created.tk.yaml
+  expect: its stdout contains "came from an earlier response"
+- exec: ${tk} expect 'heading "Order" is visible' --record .testkit/selftest/created.tk.yaml
+- exec: ${tk} session stop
+- expect: 'file ".testkit/selftest/created.tk.yaml"''s text contains "extract: last request \"POST /api/orders\"''s json''s id into order_id"'
+- expect: file ".testkit/selftest/created.tk.yaml"'s text contains "/orders/$${order_id}"
+- exec: ${env.TESTKIT_BIN} test .testkit/selftest/created.tk.yaml
+  expect: its exit is 0
+
+- claim: Suggestions cover state changes and disappearances
+- exec: ${tk} session stop
+- exec: ${tk} visit http://127.0.0.1:${port}/widgets
+- exec: ${tk} check 'checkbox "Newsletter"'
+- exec: ${tk} suggest
+  expect: 'its stdout contains "expect: checkbox \"Newsletter\" is checked"'
+- exec: ${tk} visit http://127.0.0.1:${port}/popup
+- exec: ${tk} click 'button "Accept" in dialog "Cookie consent"'
+- exec: ${tk} suggest --accept 1 --record .testkit/selftest/suggested.tk.yaml
+- exec: ${tk} session stop
+- expect: 'file ".testkit/selftest/suggested.tk.yaml"''s text contains "expect: no dialog"'

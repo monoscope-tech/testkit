@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Acme</title><style>body{font:15px system-ui;margin:24px} .alert{background:#e1f1e8;padding:6px} table td,table th{padding:4px 10px;text-align:left} .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:grid;place-items:center} .modal div{background:#fff;padding:20px}</style></head><body><header><span class="brand">Acme</span><nav aria-label="Main"><a href="/dashboard">Dashboard</a> <a href="/orders">Orders</a> <a href="/widgets">Widgets</a></nav></header><main><h1>New order</h1>
+<form id="f" aria-label="New order">
+<label>Customer <input name="customer"></label>
+<label for="plan">Plan</label> <select id="plan" name="plan"><option value="">Choose a plan</option></select>
+<button>Save</button> <a href="/orders">Cancel</a>
+<p role="alert" id="err" hidden></p></form>
+<script>
+fetch('/api/plans').then(r => r.json()).then(ps => ps.forEach(p => { const o = document.createElement('option'); o.textContent = p; o.value = p; document.getElementById('plan').appendChild(o); }));
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const r = await fetch('/api/orders', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({customer: f.get('customer'), plan: f.get('plan')})});
+  const j = await r.json();
+  if (r.ok) location.href = '/orders/' + j.id + '?created=1'; else { const err = document.getElementById('err'); err.hidden = false; err.textContent = j.error; }
+});
+</script></main></body></html>

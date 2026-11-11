@@ -1,0 +1,96 @@
+# testkit testing its own CLI: exit codes, error messages an agent can act on, reporters, scaffolding.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: The binary reports its version and grammar
+- exec: ${tk} --version
+  expect:
+    - its exit is 0
+    - its stdout matches /^testkit \d+\.\d+\.\d+$/
+- exec: ${tk} grammar
+  expect:
+    - its stdout contains "## Locators"
+    - its stdout contains "claim:"
+
+- claim: Failures exit 1 and point at the failing line
+- exec: ${tk} test fixtures/fails.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "fixtures/fails.yaml:1"
+    - 'its stdout contains "(actual: \"hi\")"'
+- exec: ${tk} test fixtures/claims_fail.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "0/2 claims proven"
+    - its stdout contains "⏭ exec echo never"
+
+- claim: Invalid files exit 2 with a caret and a hint
+- exec: ${tk} test fixtures/parse_error.yaml
+  expect:
+    - its exit is 2
+    - its stderr contains "E_PARSE expected closing quote"
+    - its stderr contains "^"
+- exec: ${tk} test fixtures/unknown_key.yaml
+  expect:
+    - its exit is 2
+    - its stderr contains "unknown key `colour`"
+
+- claim: Browser errors name the problem and suggest a fix
+- exec: ${tk} --base-url http://127.0.0.1:${port} test fixtures/browser_errors.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "E_AMBIGUOUS"
+    - its stdout contains "      button \"Sign in\""
+    - its stdout contains "button \"Sign in with Google\""
+- exec: ${tk} --base-url http://127.0.0.1:${port} test fixtures/not_found.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "E_NOT_FOUND"
+    - its stdout contains "did you mean"
+- exec: ${tk} --base-url http://127.0.0.1:${port} test fixtures/guard.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "E_GUARD"
+    - its stdout contains "boom from button"
+
+- claim: Machine-readable reporters work for CI
+- exec: ${tk} test fixtures/fails.yaml -o json
+  expect:
+    - its exit is 1
+    - its stdout's json[0].status is "fail"
+    - its stdout's json[0].line is 1
+- exec: ${tk} test fixtures/fails.yaml -o junit
+  expect:
+    - its stdout contains "<testsuite"
+    - its stdout contains "<failure"
+- exec: ${tk} test fixtures/fails.yaml -o tap
+  expect: its stdout contains "not ok 1"
+- exec: ${tk} test fixtures/fails.yaml -o github
+  expect: its stdout contains "::error file=fixtures/fails.yaml,line=1"
+
+- claim: Lint finds problems without running anything
+- exec: ${tk} lint fixtures/lint_me.yaml
+  expect:
+    - its exit is 0
+    - 'its stdout contains "lint_me.yaml:1: warning [absolute-url]"'
+    - 'its stdout contains "lint_me.yaml:2: warning [fixed-sleep]"'
+    - 'its stdout contains "lint_me.yaml:3: warning [yaml-quote]"'
+- exec: ${tk} lint fixtures/lint_me.yaml --strict
+  expect: its exit is 1
+- exec: ${tk} lint fixtures/parse_error.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "error [parse]"
+
+- claim: Scaffolding and migration produce valid files
+- exec: rm -rf .testkit/selftest && mkdir -p .testkit/selftest && ${tk} new -f .testkit/selftest/new.tk.yaml -t browser
+- expect: file ".testkit/selftest/new.tk.yaml"
+  matches: golden/new-browser.golden
+- exec: "printf -- '- GET: http://x/{{id}}\\n  headers:\\n    A: $.env.KEY\\n  asserts:\\n    - ok: status is 200\\n- select: field \"Plan\" with \"Pro\"\\n' > .testkit/selftest/legacy.yaml && ${tk} migrate .testkit/selftest/legacy.yaml"
+- expect: file ".testkit/selftest/legacy.yaml"'s text contains "http://x/$${id}"
+- expect: file ".testkit/selftest/legacy.yaml"'s text contains "$${env.KEY}"
+- expect: file ".testkit/selftest/legacy.yaml"'s text contains "  expect: status is 200"
+- expect: 'file ".testkit/selftest/legacy.yaml"''s text contains "- fill: field \"Plan\""'
+- exec: ${tk} lint .testkit/selftest/legacy.yaml
+  expect: its exit is 0

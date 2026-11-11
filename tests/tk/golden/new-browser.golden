@@ -1,0 +1,4 @@
+- meta: { base_url: "https://example.com" }
+- visit: /
+- expect: heading "Example Domain" is visible
+- expect: no console errors

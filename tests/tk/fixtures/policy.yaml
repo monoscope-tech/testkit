@@ -1,0 +1,6 @@
+- meta:
+    policy:
+      origins: ["127.0.0.1:*"]
+      exec: deny
+      forbid: ['request "DELETE /api/**"']
+- visit: https://example.com/

@@ -1,0 +1,11 @@
+- claim: A user can sign in
+- visit: /login
+- fill: field "Email" with "admin@acme.com"
+- fill: field "Password" with "${env.PASS}"
+- click: button exactly "Sign in"
+- expect: heading "Dashboard" is visible
+- claim: The session reaches the API
+- GET: /api/me
+  cookies: from default
+  asserts:
+    - ok: its json's email is "admin@acme.com"

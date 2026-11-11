@@ -1,0 +1,55 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - name: unit, doc and self tests (testkit tests itself)
+        run: cargo test
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          TESTKIT_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+      - name: receipts from the self-test run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testkit-receipts-${{ matrix.os }}
+          path: tests/tk/.testkit/receipts
+          if-no-files-found: ignore
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --bin testkit
+      - run: cargo test --test grammar --test http_regression
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t testkit:ci .
+      - name: self-tests inside the image
+        run: docker run --rm -v "$PWD:/work" testkit:ci test tests/tk -o github

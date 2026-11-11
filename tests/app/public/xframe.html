@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cross-origin frame</title></head><body><main><h1>Checkout</h1>
+<p>The payment form below is served from another origin (localhost vs 127.0.0.1), so it runs in its own renderer process.</p>
+<iframe name="xpay" title="Payment" style="width:420px;height:140px;margin-top:40px;border:4px solid #ccc"></iframe>
+<script>document.querySelector('iframe').src = 'http://localhost:' + location.port + '/inner';</script></main></body></html>

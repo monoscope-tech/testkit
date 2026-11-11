@@ -1,0 +1,68 @@
+# Paths that earlier suites didn't cover: navigation/dialog waits, route abort/delay, shots,
+# history, leak checks, config profiles, terminal styles and Chrome installation.
+- meta: { base_url: "http://127.0.0.1:${port}", tk: "${env.TESTKIT_BIN}", url: "http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: Waits observe navigations and dialogs caused by the last action
+- visit: /dashboard
+- click: link "Orders"
+- wait: for navigation
+- expect: its url ends with "/orders"
+- click: button "Delete" in row /1042/
+- wait: for dialog
+- expect: its message contains "Delete order 1042"
+- expect: row /1042/ is visible
+
+- claim: Routes can abort and delay requests
+- route: GET /api/me
+  respond: { json: { email: mock@acme.com } }
+  delay: 600ms
+- visit: /dashboard
+- expect: text "Signed in as mock@acme.com" is visible
+- expect: the duration of request "GET /api/me" is greater than 500
+- unroute: GET /api/me
+- route: GET /api/orders
+  abort: true
+- visit: /orders
+  allow: [page errors]
+- expect: the failed of request "GET /api/orders" exists
+- expect: no row /1042/
+- unroute: GET /api/orders
+
+- claim: Screenshots and history navigation work
+- visit: /login
+- visit: /orders
+- shot: orders.png
+- expect: file "${it.file}" exists
+- back:
+- expect: the path is "/login"
+- reload:
+- expect: heading "Sign in" is visible
+
+- claim: A flow repeated in a loop does not leak memory
+- visit: /widgets
+- call: flows/toggle.yaml
+  iterations: 3
+  measure: heap
+- expect: its heap_growth is less than 20MB
+
+- claim: Config profiles change behaviour per environment
+- exec: cd fixtures/profiled && ${tk} --base-url ${url} test guarded.yaml
+  expect:
+    - its exit is 1
+    - its stdout contains "E_GUARD"
+- exec: cd fixtures/profiled && ${tk} --base-url ${url} --profile local test guarded.yaml
+  expect: its exit is 0
+
+- claim: Terminal snapshots can show colors
+- exec: ${tk} --session styles session stop; ${tk} --session styles spawn "printf '\033[31mERROR\033[0m plain\n'; sleep 20"
+- exec: sleep 0.5; ${tk} --session styles snapshot --all
+  expect: its stdout contains "[red]ERROR[/] plain"
+- exec: ${tk} --session styles session stop
+
+- claim: Chrome for Testing can be installed
+- exec: ${tk} install chrome --dry-run
+  expect:
+    - its stdout contains "chrome-for-testing-public"
+    - its stdout contains ".cache/testkit/chrome"

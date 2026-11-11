@@ -1,0 +1,45 @@
+# Browser: locators, fields, strictness tie-break, step reports, alerts, cookies shared with API steps.
+- meta: { base_url: "http://127.0.0.1:${port}" }
+- call: flows/app.yaml
+  exports: [port]
+
+- claim: Wrong credentials show an error and keep the user on the login page
+- visit: /login
+- expect: heading "Sign in" is visible
+- expect: form "Sign in" matches button "Sign in"
+- fill: field "Email" with "admin@acme.com"
+- fill: field "Password" with "wrong"
+- click: button "Sign in"
+- expect: alert "Invalid email or password" is visible
+- expect: the status of request "POST /api/session" is 401
+- expect: the path is "/login"
+- expect: the value of field "Email" is "admin@acme.com"
+- expect: field "Password" is editable
+
+- claim: A user can sign in and the session works for API calls
+- check: Remember me
+- expect: checkbox "Remember me" is checked
+- fill: Password with "hunter22"
+- click: button exactly "Sign in"
+  expect: the url ends with "/dashboard"
+- expect: heading "Dashboard"
+- expect: '"Welcome back" is visible'
+- expect: '"Signed in as admin@acme.com"'
+- expect: no "Invalid email or password"
+- expect: title is "Acme"
+- expect: no console errors
+- expect: navigation "Main"
+  matches:
+    - link "Dashboard"
+    - link "Orders"
+- GET: /api/me
+  cookies: from default
+  expect:
+    - its status is 200
+    - its json's email is "admin@acme.com"
+- expect: the cookie "sid" is "s3cret"
+
+- claim: Signing in through a reusable flow works
+- call: flows/login.yaml
+  with: { user: admin@acme.com, pass: hunter22 }
+- expect: link "Orders" is visible

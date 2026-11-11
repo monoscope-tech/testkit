@@ -1,0 +1,2 @@
+- exec: echo hi
+  colour: red

@@ -1,0 +1,3 @@
+- visit: /clock
+- expect: text "Date 2026-01-01" is visible
+- expect: text "Zone UTC" is visible

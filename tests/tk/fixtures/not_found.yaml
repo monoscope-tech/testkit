@@ -1,0 +1,3 @@
+- visit: /login
+- click: button "Sign out"
+  timeout: 1s
