@@ -319,7 +319,8 @@ T.summary = () => {
   }
   return [...out];
 };
-T.find = needle => deepAll(document).filter(el => T.visible(el) && (lower(T.name(el)).includes(lower(needle)) || (el.children.length === 0 && lower(text(el)).includes(lower(needle))))).slice(0, 20).map(el => ({ locator: T.locatorFor(el), role: T.role(el), name: T.name(el) || text(el).slice(0, 60) }));
+const tid = el => el.getAttribute('data-testid');
+T.find = needle => deepAll(document).filter(el => T.visible(el) && (lower(T.name(el)).includes(lower(needle)) || lower(tid(el) || '').includes(lower(needle)) || (el.children.length === 0 && lower(text(el)).includes(lower(needle))))).slice(0, 20).map(el => ({ locator: tid(el) && lower(tid(el)).includes(lower(needle)) ? `testid ${q(tid(el))}` : T.locatorFor(el), role: T.role(el), name: T.name(el) || text(el).slice(0, 60) }));
 T.a11y = loc => {
   const roots = loc ? T.query(loc) : [document.body], v = [];
   for (const root of roots) for (const el of deepAll(root)) {

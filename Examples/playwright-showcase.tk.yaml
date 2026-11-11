@@ -1,0 +1,409 @@
+# A full order-lifecycle journey against the fixture app (tests/app), side by side with the Playwright
+# test you would write for it (bottom of this file). Covers: auth failures + success, session cookies
+# shared with API calls, data-driven creation via a reusable flow, server-side validation, a mocked
+# backend outage, aria-structure asserts, table data extraction, new tabs, downloads, native confirm
+# dialogs, cross-origin iframes, slow-loading UI, perf budgets, the console-error guard, emulation and
+# screenshots as evidence.
+#
+#   testkit test  Examples/playwright-showcase.tk.yaml   # run it
+#   testkit prove Examples/playwright-showcase.tk.yaml   # run it and emit a verifiable receipt with a GIF per claim
+- meta: { base_url: "http://127.0.0.1:${port}" }
+- call: ../tests/tk/flows/app.yaml
+  exports: [port]
+
+- claim: Wrong credentials are rejected without leaving the login page
+- visit: /login
+- expect: form "Sign in" matches button exactly "Sign in"
+- fill: Email with "admin@acme.com"
+- fill: Password with "wrong"
+- click: button exactly "Sign in"
+- expect: alert "Invalid email or password" is visible
+- expect: the status of request "POST /api/session" is 401
+- expect: the path is "/login"
+- expect: the value of field "Email" is "admin@acme.com"
+
+- claim: A user signs in with the keyboard and the session works for API calls
+- check: Remember me
+- fill: Password with "hunter22"
+- press: Enter
+- expect: the url ends with "/dashboard"
+- expect: '"Signed in as admin@acme.com"'
+- expect: navigation "Main"
+  matches:
+    - link "Dashboard"
+    - link "Orders"
+    - link "Widgets"
+- expect: the cookie "sid" exists
+- GET: /api/me
+  cookies: from default
+  expect: [status is 200, json.email is "admin@acme.com"]
+
+- claim: Orders created through the UI are persisted (data-driven)
+- call: flows/create-order.yaml
+  with: { customer: "${customer}", plan: "${plan}" }
+  iterations:
+    - { customer: Alice, plan: Pro }
+    - { customer: Carol, plan: Enterprise }
+- GET: /api/orders
+  cookies: from default
+  expect:
+    - its status is 200
+    - the length of its json is 3
+    - (its json mapped to its customer) contains "Carol"
+    - (its json mapped to its status) contains "paid"
+
+- claim: Server-side validation errors surface in the form
+- visit: /orders/new
+- click: Save
+- expect: alert "customer is required" is visible
+- expect: the status of request "POST /api/orders" is 422
+- expect: the path is "/orders/new"
+
+- claim: A backend outage is shown to the user, not swallowed
+- route: POST /api/orders
+  respond: { status: 503, json: { error: "database unavailable" } }
+- fill: Customer with "Zed"
+- fill: Plan with "Starter"
+- click: Save
+- expect: alert "database unavailable" is visible
+- expect: request "POST /api/orders"'s mocked is true
+- unroute: POST /api/orders
+- GET: /api/orders
+  expect: (its json mapped to its customer) does not contain "Zed"
+
+- claim: The orders table reflects the backend, row by row
+- visit: /orders
+- expect: table "Orders"
+  matches:
+    - row /1042/:
+      - cell "Bob"
+      - cell "paid"
+    - row /Alice/:
+      - cell "Pro"
+      - cell "pending"
+    - row /Carol/:
+      - cell "Enterprise"
+- expect: '"3 orders"'
+- extract: the rows of table "Orders" into rows
+- expect: the length of (rows where its Status is "pending") is 2
+- expect: (rows mapped to its Customer) joined by "," is "Bob,Alice,Carol"
+
+- claim: Orders open in a new tab and export as CSV
+- visit: /popup
+- click: button "Accept" in dialog "Cookie consent"
+- expect: no dialog "Cookie consent"
+- click: link "Open orders in new tab"
+- wait: for popup into orders_tab
+- expect: heading "Orders" is visible
+  session: orders_tab
+- click: link "Export CSV"
+  session: orders_tab
+- wait: for download into csv
+- expect: csv ends with "orders.csv"
+- expect: file "${csv}"'s text contains "1042,Bob"
+
+- claim: Deleting asks for confirmation and removes the order everywhere
+- visit: /orders
+  session: default
+- click: button "Delete" in row /Alice/
+  dialog: dismiss
+- expect: row /Alice/ is visible
+- click: button "Delete" in row /Alice/
+  dialog: accept
+- expect: no row /Alice/
+- expect: the status of request "DELETE /api/orders/*" is 200
+- expect: '"2 orders"'
+- GET: /api/orders
+  expect: (its json mapped to its customer) does not contain "Alice"
+
+- claim: Payment inside a cross-origin iframe completes
+- visit: /xframe
+- click: button "Pay now" in frame "xpay"
+- expect: button "Paid" in frame "xpay" is visible
+
+- claim: Slow data loads without sleeps and interactions stay within budget
+- visit: /slow
+- expect: button "Continue" is disabled
+- expect: status "Ready" is visible
+- expect: button "Continue" is enabled
+- expect: the duration of request "GET /api/slow" is greater than 500ms
+- visit: /shift
+- click: button "Add"
+  measure: true
+- expect: its duration is less than 2s
+- expect: the lcp of page is less than 2.5s
+- expect: no long tasks over 200ms
+
+- claim: Unexpected console errors fail the run unless explicitly allowed
+- visit: /broken
+- expect: no console errors
+- click: button "Explode"
+  allow: [console errors, page errors]
+- expect: some console errors
+- expect: all console messages contains "ready"
+
+- claim: The dashboard renders on a phone in dark mode
+- emulate: iPhone 15
+- emulate: dark
+- visit: /dashboard
+- expect: heading "Dashboard" is visible
+- expect: link "Orders" is visible
+- shot: dashboard-iphone-dark.png
+- expect: file "${it.file}" exists
+- emulate: desktop
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# The same journey in Playwright (TypeScript, @playwright/test 1.5x). ~230 lines vs ~140 above (flow included), and it
+# still needs: playwright.config.ts with a webServer block on a fixed port, hand-rolled console/page
+# error collection, injected PerformanceObservers for long tasks and LCP, a DOM scrape to read the
+# table as data, dialog handlers armed before each click, Promise.all races for responses, popups and
+# downloads, and a fresh context (re-seeded cookies) for the phone. No receipt/GIF-per-claim equivalent.
+#
+# // playwright.config.ts
+# import { defineConfig, devices } from '@playwright/test';
+# export default defineConfig({
+#   testDir: './e2e',
+#   fullyParallel: false,
+#   use: { baseURL: `http://127.0.0.1:${process.env.PORT ?? 8787}`, trace: 'retain-on-failure', video: 'retain-on-failure' },
+#   webServer: {
+#     command: `python3 tests/app/server.py --port ${process.env.PORT ?? 8787}`,
+#     url: `http://127.0.0.1:${process.env.PORT ?? 8787}/health`,
+#     reuseExistingServer: !process.env.CI,
+#   },
+#   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+# });
+#
+# // e2e/orders.spec.ts
+# import { test, expect, devices, type Page, type ConsoleMessage} from '@playwright/test';
+# import { readFile } from 'node:fs/promises';
+#
+# test.describe.configure({ mode: 'serial' });
+#
+# let page: Page;
+# let consoleErrors: string[] = [];
+# let pageErrors: Error[] = [];
+#
+# test.beforeAll(async ({ browser, request }) => {
+#   await request.post('/api/reset');
+#   const context = await browser.newContext();
+#   page = await context.newPage();
+#   // the guard testkit gives you for free
+#   page.on('console', (m: ConsoleMessage) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+#   page.on('pageerror', e => pageErrors.push(e));
+# });
+#
+# test.afterEach(async ({}, info) => {
+#   if (!info.title.includes('console errors')) {
+#     expect(consoleErrors, 'unexpected console errors').toEqual([]);
+#     expect(pageErrors, 'unexpected page errors').toEqual([]);
+#   }
+#   consoleErrors = []; pageErrors = [];
+# });
+#
+# async function createOrder(page: Page, customer: string, plan: string) {
+#   await page.goto('/orders/new');
+#   await page.getByLabel('Customer').fill(customer);
+#   await expect(page.getByLabel('Plan').locator('option', { hasText: plan })).toBeAttached(); // options load async
+#   await page.getByLabel('Plan').selectOption(plan);
+#   const [res] = await Promise.all([
+#     page.waitForResponse(r => r.url().endsWith('/api/orders') && r.request().method() === 'POST'),
+#     page.getByRole('button', { name: 'Save' }).click(),
+#   ]);
+#   expect(res.status()).toBe(201);
+#   const { id } = await res.json();
+#   await expect(page.getByRole('alert')).toHaveText('Order created');
+#   await expect(page.getByRole('heading', { name: `Order #${id}` })).toBeVisible();
+#   return id as number;
+# }
+#
+# test('wrong credentials are rejected without leaving the login page', async () => {
+#   await page.goto('/login');
+#   await expect(page.getByRole('form', { name: 'Sign in' }).getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+#   await page.getByLabel('Email').fill('admin@acme.com');
+#   await page.getByLabel('Password').fill('wrong');
+#   const [res] = await Promise.all([
+#     page.waitForResponse('**/api/session'),
+#     page.getByRole('button', { name: 'Sign in', exact: true }).click(),
+#   ]);
+#   await expect(page.getByRole('alert')).toHaveText('Invalid email or password');
+#   expect(res.status()).toBe(401);
+#   expect(new URL(page.url()).pathname).toBe('/login');
+#   await expect(page.getByLabel('Email')).toHaveValue('admin@acme.com');
+# });
+#
+# test('a user signs in with the keyboard and the session works for API calls', async () => {
+#   await page.getByLabel('Remember me').check();
+#   await page.getByLabel('Password').fill('hunter22');
+#   await page.getByLabel('Password').press('Enter');
+#   await expect(page).toHaveURL(/\/dashboard$/);
+#   await expect(page.getByText('Signed in as admin@acme.com')).toBeVisible();
+#   await expect(page.getByRole('navigation', { name: 'Main' })).toMatchAriaSnapshot(`
+#     - link "Dashboard"
+#     - link "Orders"
+#     - link "Widgets"
+#   `);
+#   const cookies = await page.context().cookies();
+#   expect(cookies.find(c => c.name === 'sid')).toBeDefined();
+#   const me = await page.request.get('/api/me'); // shares the context's cookie jar
+#   expect(me.status()).toBe(200);
+#   expect((await me.json()).email).toBe('admin@acme.com');
+# });
+#
+# for (const { customer, plan } of [{ customer: 'Alice', plan: 'Pro' }, { customer: 'Carol', plan: 'Enterprise' }]) {
+#   test(`orders created through the UI are persisted: ${customer}`, async () => {
+#     await createOrder(page, customer, plan);
+#   });
+# }
+#
+# test('the API agrees with what the UI created', async () => {
+#   const res = await page.request.get('/api/orders');
+#   expect(res.status()).toBe(200);
+#   const orders: Array<{ customer: string; status: string }> = await res.json();
+#   expect(orders).toHaveLength(3);
+#   expect(orders.map(o => o.customer)).toContain('Carol');
+#   expect(orders.map(o => o.status)).toContain('paid');
+# });
+#
+# test('server-side validation errors surface in the form', async () => {
+#   await page.goto('/orders/new');
+#   const [res] = await Promise.all([
+#     page.waitForResponse(r => r.url().endsWith('/api/orders') && r.request().method() === 'POST'),
+#     page.getByRole('button', { name: 'Save' }).click(),
+#   ]);
+#   expect(res.status()).toBe(422);
+#   await expect(page.getByRole('alert')).toHaveText('customer is required');
+#   expect(new URL(page.url()).pathname).toBe('/orders/new');
+# });
+#
+# test('a backend outage is shown to the user, not swallowed', async () => {
+#   let mocked = false;
+#   await page.route('**/api/orders', async route => {
+#     if (route.request().method() !== 'POST') return route.fallback();
+#     mocked = true;
+#     await route.fulfill({ status: 503, json: { error: 'database unavailable' } });
+#   });
+#   await page.getByLabel('Customer').fill('Zed');
+#   await page.getByLabel('Plan').selectOption('Starter');
+#   await page.getByRole('button', { name: 'Save' }).click();
+#   await expect(page.getByRole('alert')).toHaveText('database unavailable');
+#   expect(mocked).toBe(true);
+#   await page.unroute('**/api/orders');
+#   const orders = await (await page.request.get('/api/orders')).json();
+#   expect(orders.map((o: any) => o.customer)).not.toContain('Zed');
+# });
+#
+# test('the orders table reflects the backend, row by row', async () => {
+#   await page.goto('/orders');
+#   const table = page.getByRole('table', { name: 'Orders' });
+#   await expect(table).toMatchAriaSnapshot(`
+#     - row /1042/:
+#       - cell "Bob"
+#       - cell "paid"
+#     - row /Alice/:
+#       - cell "Pro"
+#       - cell "pending"
+#     - row /Carol/:
+#       - cell "Enterprise"
+#   `);
+#   await expect(page.getByText('3 orders')).toBeVisible();
+#   // no built-in "table as data": scrape headers and cells by hand
+#   const headers = await table.locator('thead th').allInnerTexts();
+#   const rows = await table.locator('tbody tr').evaluateAll((trs, hs) =>
+#     trs.map(tr => Object.fromEntries([...tr.querySelectorAll('td')].map((td, i) => [hs[i], td.textContent?.trim()]))), headers);
+#   expect(rows.filter(r => r.Status === 'pending')).toHaveLength(2);
+#   expect(rows.map(r => r.Customer).join(',')).toBe('Bob,Alice,Carol');
+# });
+#
+# test('orders open in a new tab and export as CSV', async () => {
+#   await page.goto('/popup');
+#   const consent = page.getByRole('dialog', { name: 'Cookie consent' });
+#   await consent.getByRole('button', { name: 'Accept' }).click();
+#   await expect(consent).toHaveCount(0);
+#   const [tab] = await Promise.all([
+#     page.context().waitForEvent('page'),
+#     page.getByRole('link', { name: 'Open orders in new tab' }).click(),
+#   ]);
+#   await tab.waitForLoadState();
+#   await expect(tab.getByRole('heading', { name: 'Orders' })).toBeVisible();
+#   const [download] = await Promise.all([
+#     tab.waitForEvent('download'),
+#     tab.getByRole('link', { name: 'Export CSV' }).click(),
+#   ]);
+#   expect(download.suggestedFilename()).toBe('orders.csv');
+#   expect(await readFile(await download.path(), 'utf8')).toContain('1042,Bob');
+#   await tab.close();
+# });
+#
+# test('deleting asks for confirmation and removes the order everywhere', async () => {
+#   await page.goto('/orders');
+#   const row = page.getByRole('row', { name: /Alice/ });
+#   page.once('dialog', d => d.dismiss()); // must be armed before the click
+#   await row.getByRole('button', { name: 'Delete' }).click();
+#   await expect(row).toBeVisible();
+#   page.once('dialog', d => d.accept());
+#   const [res] = await Promise.all([
+#     page.waitForResponse(r => /\/api\/orders\/\d+$/.test(r.url()) && r.request().method() === 'DELETE'),
+#     row.getByRole('button', { name: 'Delete' }).click(),
+#   ]);
+#   expect(res.status()).toBe(200);
+#   await expect(row).toHaveCount(0);
+#   await expect(page.getByText('2 orders')).toBeVisible();
+#   const orders = await (await page.request.get('/api/orders')).json();
+#   expect(orders.map((o: any) => o.customer)).not.toContain('Alice');
+# });
+#
+# test('payment inside a cross-origin iframe completes', async () => {
+#   await page.goto('/xframe');
+#   const pay = page.frameLocator('iframe[name="xpay"]');
+#   await pay.getByRole('button', { name: 'Pay now' }).click();
+#   await expect(pay.getByRole('button', { name: 'Paid' })).toBeVisible();
+# });
+#
+# test('slow data loads without sleeps and interactions stay within budget', async () => {
+#   const slow = page.waitForResponse('**/api/slow');
+#   const started = Date.now();
+#   await page.goto('/slow');
+#   await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+#   await expect(page.getByRole('status')).toHaveText('Ready');
+#   await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();
+#   await slow;
+#   expect(Date.now() - started).toBeGreaterThan(500); // approximation: no per-request timing API
+#
+#   await page.goto('/shift');
+#   await page.evaluate(() => {
+#     (window as any).__longTasks = [];
+#     new PerformanceObserver(l => (window as any).__longTasks.push(...l.getEntries().map(e => e.duration)))
+#       .observe({ type: 'longtask', buffered: true });
+#   });
+#   const t0 = Date.now();
+#   await page.getByRole('button', { name: 'Add' }).click();
+#   await expect(page.getByText('added')).toBeVisible();
+#   expect(Date.now() - t0).toBeLessThan(2000);
+#   const lcp = await page.evaluate(() => new Promise<number>(resolve =>
+#     new PerformanceObserver(l => { const e = l.getEntries(); resolve(e[e.length - 1].startTime); })
+#       .observe({ type: 'largest-contentful-paint', buffered: true })));
+#   expect(lcp).toBeLessThan(2500);
+#   const longTasks: number[] = await page.evaluate(() => (window as any).__longTasks);
+#   expect(longTasks.filter(d => d > 200)).toEqual([]);
+# });
+#
+# test('unexpected console errors fail the run unless explicitly allowed', async () => {
+#   const messages: string[] = [];
+#   page.on('console', m => messages.push(m.text()));
+#   await page.goto('/broken');
+#   expect(consoleErrors).toEqual([]);
+#   await page.getByRole('button', { name: 'Explode' }).click();
+#   await expect.poll(() => consoleErrors.length).toBeGreaterThan(0);
+#   expect(messages.some(m => m.includes('ready'))).toBe(true);
+# });
+#
+# test.describe('mobile', () => {
+#   test.use({ ...devices['iPhone 15'], colorScheme: 'dark' }); // needs a new context: login state must be re-seeded
+#   test('the dashboard renders on a phone in dark mode', async ({ page: phone, context }) => {
+#     await context.addCookies([{ name: 'sid', value: 's3cret', url: test.info().project.use.baseURL! }]);
+#     await phone.goto('/dashboard');
+#     await expect(phone.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+#     await expect(phone.getByRole('link', { name: 'Orders' })).toBeVisible();
+#     await phone.screenshot({ path: test.info().outputPath('dashboard-iphone-dark.png') });
+#   });
+# });

@@ -537,7 +537,7 @@ fn scopes(i: &mut In) -> R<Vec<Scope>> {
     .parse_next(i)
 }
 /// Where an action expects a locator, a bare name also works: `"Save" in dialog "X"`, or unquoted
-/// text up to `until` (`Save`, `Search Wikipedia with …`). `head` is `Named` or `Field`.
+/// text up to `until` (`Save`, `Toggle Todo in listitem "Milk"`, `Search with …`). `head` is `Named` or `Field`.
 fn bare_loc<'a>(head: Head, until: &'static str) -> impl FnMut(&mut In<'a>) -> R<Locator> {
     move |i: &mut In<'a>| {
         let unquoted = |i: &mut In<'a>| {
@@ -547,16 +547,27 @@ fn bare_loc<'a>(head: Head, until: &'static str) -> impl FnMut(&mut In<'a>) -> R
                 winnow::token::take_until(1.., until).parse_next(i)?
             };
             let s = s.trim();
-            match template(s) {
-                Ok(segs) if !s.is_empty() && !s.starts_with('"') => Ok(match segs_expr(segs) {
-                    Expr::Lit(v) => Name::Sub(super::eval::to_str(&v)),
-                    Expr::Tmpl(t) => Name::Tmpl(t),
-                    _ => unreachable!(),
-                }),
+            // the name ends at the first ` in ` whose remainder is a scope (`Sign in` has none)
+            let (n, scope) = s
+                .match_indices(" in ")
+                .find_map(|(k, _)| Some((&s[..k], run(scopes, &s[k..]).ok()?)))
+                .filter(|(_, sc)| sc.iter().all(|x| !matches!(x, Scope::Session(_))))
+                .unwrap_or((s, vec![]));
+            match template(n) {
+                Ok(segs) if !n.is_empty() && !n.starts_with('"') => Ok((
+                    match segs_expr(segs) {
+                        Expr::Tmpl(t) => Name::Tmpl(t),
+                        e => Name::Sub(super::eval::to_str(&match e {
+                            Expr::Lit(v) => v,
+                            _ => Value::Null,
+                        })),
+                    },
+                    scope,
+                )),
                 _ => Err(ErrMode::Backtrack(ContextError::new())),
             }
         };
-        alt(((name, scopes), unquoted.map(|n| (n, vec![]))))
+        alt(((name, scopes), unquoted))
             .map(|(n, scope)| Locator {
                 head: head.clone(),
                 name: Some(n),
@@ -766,6 +777,9 @@ fn keyseq(i: &mut In) -> R<Vec<String>> {
 /// assert!(args("click", "").is_err());
 /// assert_eq!(args("click", "Sign in").unwrap(), Args::Loc(testkit::expr::Locator { head: testkit::expr::Head::Named, name: Some(testkit::expr::Name::Sub("Sign in".into())), ..Default::default() }));
 /// assert!(matches!(args("click", r#""Pay" in dialog "Checkout""#).unwrap(), Args::Loc(l) if l.to_string() == r#""Pay" in dialog "Checkout""#));
+/// assert!(matches!(args("check", r#"Toggle Todo in listitem "Milk""#).unwrap(), Args::Loc(l) if l.to_string() == r#""Toggle Todo" in listitem "Milk""#));
+/// assert!(matches!(args("click", "Log in to the app").unwrap(), Args::Loc(l) if l.scope.is_empty()));
+/// assert!(matches!(args("click", "Sign in quickly").unwrap(), Args::Loc(l) if l.scope.is_empty()));
 /// assert!(matches!(args("fill", r#"Search Wikipedia with "selenium""#).unwrap(), Args::LocVal(l, _) if l.to_string() == r#"field "Search Wikipedia""#));
 /// assert!(matches!(args("type", "hello ${name} into field \"Q\"").unwrap(), Args::Type(Expr::Tmpl(_), Some(_))));
 /// assert!(matches!(args("enter", "\"1.0.0\"").unwrap(), Args::Type(Expr::Lit(v), None) if v == "1.0.0"));

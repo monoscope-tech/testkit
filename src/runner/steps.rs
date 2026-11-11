@@ -72,6 +72,17 @@ impl Runner {
                     }
                 }
             }
+            (Args::Type(e, l), "enter") if self.surface(v, l.as_ref()) == Surf::Browser => {
+                let s = to_str(&self.value(e).await?);
+                if let Some(l) = l {
+                    self.act("focus", l, None, timeout, item).await?;
+                }
+                let t = self.tab(None).await?;
+                t.type_text(&s).await?;
+                t.key("Enter").await?;
+                t.wait_load().await;
+                Ok(Value::String(s))
+            }
             (Args::Type(e, _), "enter") => {
                 let s = to_str(&self.value(e).await?);
                 self.last = Surf::Term;
@@ -395,16 +406,19 @@ impl Runner {
                         _ => String::new(),
                     };
                     let near = t
-                        .tk("find", &[json!(needle.split_whitespace().next().unwrap_or(""))])
+                        .tk("find", &[json!(needle.split([' ', '-', '_']).next().unwrap_or(""))])
                         .await
                         .ok()
                         .and_then(|v| v.as_array().cloned())
                         .unwrap_or_default();
-                    let near: Vec<String> = near
+                    let mut near: Vec<String> = near
                         .iter()
                         .filter_map(|n| n["locator"].as_str().map(String::from))
-                        .take(5)
                         .collect();
+                    // suggestions of the same kind as the locator come first
+                    let kind = loc.to_string().split([' ', '"']).next().unwrap_or("").to_string();
+                    near.sort_by_key(|n| !n.starts_with(&kind));
+                    near.truncate(5);
                     bail!(
                         "E_NOT_FOUND `{loc}` matched nothing within {}ms{}",
                         timeout.unwrap_or(action_ms),

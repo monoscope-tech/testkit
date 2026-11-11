@@ -25,6 +25,8 @@
 - expect: no listitem "Bob"
 - press: Backspace Backspace
 - expect: the length of listitem in list "Results" is 3
+- enter: bo
+  expect: [listitem "Bob", the value of field "Search" is "bo"]
 
 - claim: Files upload and cards drag between regions
 - upload: field "Avatar" with "../app/public/inner.html"

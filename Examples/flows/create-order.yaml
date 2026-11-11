@@ -1,0 +1,9 @@
+# Creates an order through the UI and checks the API agreed. Params: customer, plan.
+- visit: /orders/new
+- fill: Customer with "${customer}"
+- fill: Plan with "${plan}"
+- click: Save
+  expect: the status of request "POST /api/orders" is 201
+- expect: alert "Order created"
+- extract: the id of the json of request "POST /api/orders" into order_id
+- expect: 'heading "Order #${order_id}"'

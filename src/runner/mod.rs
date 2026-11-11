@@ -179,7 +179,7 @@ const BROWSER_VERBS: &[&str] = &[
 /// Steps that observe without acting; they don't move the "since the last action" window.
 const PASSIVE: &[&str] =
     &["expect", "wait", "extract", "snapshot", "shot", "mark", "claim", "meta"];
-const TERM_VERBS: &[&str] = &["exec", "spawn", "enter", "signal", "resize"];
+const TERM_VERBS: &[&str] = &["exec", "spawn", "signal", "resize"];
 const MOBILE_VERBS: &[&str] = &["launch", "swipe", "home", "deeplink"];
 /// Verbs that act on the device once a `launch:` made mobile the current surface.
 const MOBILE_SHARED: &[&str] =

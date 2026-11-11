@@ -77,3 +77,47 @@ pub fn lint(src: &str) -> Vec<Finding> {
     out.sort_by_key(|f| f.line);
     out
 }
+
+/// `testkit migrate`: rewrites legacy forms to their current spelling.
+///
+/// ```
+/// use testkit::lint::migrate;
+/// let old = "- GET: /x/{{id}}\n  asserts:\n    - ok: status is 200\n    - ok: $.env.X\n- POST: /y\n  asserts:\n    - ok: status is 201\n    - array: $.resp.json\n- select: field \"P\" with \"x\"\n- expect: the url of page is \"/\"\n";
+/// assert_eq!(migrate(old), "- GET: /x/${id}\n  expect:\n    - status is 200\n    - ${env.X}\n- POST: /y\n  asserts:\n    - ok: status is 201\n    - array: $.resp.json\n- fill: field \"P\" with \"x\"\n- expect: the url is \"/\"\n");
+/// ```
+pub fn migrate(src: &str) -> String {
+    let re = |p: &str| Regex::new(p).expect("static regex");
+    let s = re(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").replace_all(src, "$${$1}");
+    let s = re(r"\$\.env\.([A-Za-z_][A-Za-z0-9_]*)").replace_all(&s, "$${env.$1}");
+    let s = re(r"(?m)^(\s*- )select: ").replace_all(&s, "${1}fill: ");
+    let s = re(r"\bthe (url|title|path) of page\b").replace_all(&s, "the $1");
+    // an `asserts:` block of only `- ok:` items becomes `expect:`
+    let lines: Vec<&str> = s.lines().collect();
+    let mut out: Vec<String> = vec![];
+    let mut i = 0;
+    while i < lines.len() {
+        let l = lines[i].trim_end();
+        if let Some(ind) = l.strip_suffix("asserts:").filter(|p| p.trim().is_empty()) {
+            fn item<'a>(l: &'a str, ind: &str) -> Option<&'a str> {
+                l.strip_prefix(ind)?.strip_prefix("  - ")
+            }
+            let oks: Vec<&str> =
+                lines[i + 1..].iter().map_while(|l| item(l, ind)?.strip_prefix("ok: ")).collect();
+            if !oks.is_empty() && lines.get(i + 1 + oks.len()).and_then(|l| item(l, ind)).is_none()
+            {
+                match oks.as_slice() {
+                    [one] => out.push(format!("{ind}expect: {one}")),
+                    many => out.extend(
+                        std::iter::once(format!("{ind}expect:"))
+                            .chain(many.iter().map(|o| format!("{ind}  - {o}"))),
+                    ),
+                }
+                i += 1 + oks.len();
+                continue;
+            }
+        }
+        out.push(lines[i].into());
+        i += 1;
+    }
+    out.join("\n") + if src.ends_with('\n') { "\n" } else { "" }
+}

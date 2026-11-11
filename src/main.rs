@@ -665,23 +665,18 @@ async fn run(cli: Cli) -> Result<i32> {
         }
         Cmd::Migrate { file } => {
             let s = std::fs::read_to_string(&file)?;
-            let s2 = regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")?
-                .replace_all(&s, "$${$1}")
-                .to_string();
-            let s2 = regex::Regex::new(r"\$\.env\.([A-Za-z_][A-Za-z0-9_]*)")?
-                .replace_all(&s2, "$${env.$1}")
-                .to_string();
+            let s2 = testkit::lint::migrate(&s);
             std::fs::write(&file, &s2)?;
             println!(
                 "migrated {} ({} lines changed)",
                 file.display(),
-                s.lines().zip(s2.lines()).filter(|(a, b)| a != b).count()
+                s.lines().filter(|l| !s2.lines().any(|m| m == *l)).count()
             );
             Ok(0)
         }
         Cmd::New { file, test_type } => {
             let path = file.unwrap_or_else(|| PathBuf::from("example.tk.yaml"));
-            let api = "- title: API example\n  GET: https://jsonplaceholder.typicode.com/posts/1\n  asserts:\n    - ok: its status is 200\n    - ok: its json's id is 1\n";
+            let api = "- title: API example\n  GET: https://jsonplaceholder.typicode.com/posts/1\n  expect:\n    - status is 200\n    - json.id is 1\n";
             let browser = "- meta: { base_url: \"https://example.com\" }\n- visit: /\n- expect: heading \"Example Domain\" is visible\n- expect: no console errors\n";
             std::fs::write(
                 &path,

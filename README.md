@@ -218,7 +218,7 @@ gap in testkit. They need Python 3 and Chrome (set `CHROME` to its path if it is
 ## Legacy API syntax
 
 Files written for earlier versions keep working: `{{var}}`, `$.env.X`, `$.resp.*` JSONPath and typed asserts
-(`array:`, `numberAll:`, `contains: path ~ value` …). `testkit migrate file.yaml` rewrites `{{x}}` / `$.env.X` to `${…}`.
+(`array:`, `numberAll:`, `contains: path ~ value` …). `testkit migrate file.yaml` rewrites `{{x}}` / `$.env.X` to `${…}`, `select:` to `fill:`, and `asserts:` lists of only `ok:` to `expect:`.
 The original reference follows.
 
 ### Test Definition Syntax

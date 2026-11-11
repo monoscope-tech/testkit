@@ -8,11 +8,11 @@ Structured data (objects, lists, aria trees) goes in sibling keys, never inside 
 - `field "Email"` (label/placeholder, any text input, select, checkbox), `text "Welcome"`, `testid "checkout"`, `<css selector/>`, `@e12` (ref from `snapshot`)
 - Scope and position: `button "Edit" in row /Alice/`, `first link in navigation`, `closest form to field "Email"`, `row has button "Edit"`, `<li/>[2]`
 - Terminal: `text /listening on :(\d+)/ in server`, `line 3`, `last line`
-- Bare names: `click: Sign in` / `check: Remember me` act on the one interactive element with that name; `fill: Email with "a@b.co"` fills that field; quote the name to scope it (`click: "Pay" in dialog "Checkout"`, CLI/REPL).
+- Bare names: `click: Sign in` / `check: Remember me` act on the one interactive element with that name; `fill: Email with "a@b.co"` fills that field. Scope them like any locator: `check: Toggle Todo in listitem "Milk"`.
 - Actions are strict: when a locator matches several elements, the error lists a unique locator for each one.
 
 ## Verbs
-- Browser: `visit: /login` · `click:` · `dblclick:` · `hover:` · `check:` · `uncheck:` · `fill: field "Email" with "a@b.co"` (also picks a `<select>` option) · `upload: field "Avatar" with "me.png"` · `type: "abc"` · `press: Enter` / `ctrl+a` / `down 3 times` · `drag: text "Card" to region "Done"` · `back:` · `reload:`
+- Browser: `visit: /login` · `click:` · `dblclick:` · `hover:` · `check:` · `uncheck:` · `fill: field "Email" with "a@b.co"` (also picks a `<select>` option) · `upload: field "Avatar" with "me.png"` · `type: "abc"` · `enter: buy milk` (type, then Enter; terminals too) · `press: Enter` / `ctrl+a` / `down 3 times` · `drag: text "Card" to region "Done"` · `back:` · `reload:`
 - Firefox: `browser: firefox` (testkit.yaml or `meta:`), `--browser firefox` or `TESTKIT_BROWSER=firefox` runs the same steps over WebDriver BiDi; `route`, `trace`/`profile`/`heap`/`coverage`, `throttle`/`network`/`emulate`, vitals, popups and cross-origin frames need Chromium (E_UNSUPPORTED); `deterministic` is skipped
 - API: `GET: /api/orders` (with `headers:`, `json:`, `params:`, `cookies: from default`)
 - Terminal: `exec: cargo --version` (one-shot) · `spawn: npm run dev` (+ `session:`, `ready: for text /ready/ or 60s`, `size: 120x40`, `prompt: /\$ $/`) · `enter: "help"` · `signal: SIGTERM to server` · `resize: 80x24`
@@ -37,6 +37,8 @@ Structured data (objects, lists, aria trees) goes in sibling keys, never inside 
 - `status` alone is the HTTP status of the last API step; `status "Ready"` is the ARIA `status` role.
 - `text "Welcome"` is a locator; `the text of <h1/>` / `its text` is a property.
 - `matches` is a regex match when the right side is a string or `/regex/`, and a structural match when it is a locator.
+- A bare `fill:` name ends at the first ` with `: a label like `Sign in with Google` needs `field "Sign in with Google" with …`.
+- `testkit migrate file.yaml` rewrites old forms: `{{x}}`, `$.env.X`, `select:`, `asserts:` lists of only `ok:`, `the url of page`.
 - `testkit lint` flags YAML traps (`: ` or ` #` inside a value), fixed sleeps, volatile literals, legacy `{{x}}` and brittle CSS.
 
 ## Example

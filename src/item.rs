@@ -266,6 +266,9 @@ pub fn parse_item(v: Value, line: usize) -> Result<Item> {
         [] => {
             let unknown: Vec<_> =
                 map.keys().filter(|k| !OPT_KEYS.contains(&k.as_str())).cloned().collect();
+            if unknown.iter().any(|k| k == "select") {
+                bail!("line {line}: `select:` is now `fill:` (it picks `<select>` options); `testkit migrate` rewrites it")
+            }
             bail!("line {line}: unknown step {:?}; expected one of: {}", unknown, VERBS.join(", "))
         }
         many => bail!("line {line}: a step has exactly one verb, found {}", many.join(", ")),
