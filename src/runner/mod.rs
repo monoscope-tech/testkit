@@ -172,9 +172,9 @@ pub struct Runner {
 }
 
 const BROWSER_VERBS: &[&str] = &[
-    "visit", "click", "dblclick", "hover", "check", "uncheck", "tap", "focus", "fill", "select",
-    "upload", "drag", "route", "unroute", "trace", "profile", "heap", "coverage", "throttle",
-    "network", "emulate", "back", "reload",
+    "visit", "click", "dblclick", "hover", "check", "uncheck", "tap", "focus", "fill", "upload",
+    "drag", "route", "unroute", "trace", "profile", "heap", "coverage", "throttle", "network",
+    "emulate", "back", "reload",
 ];
 /// Steps that observe without acting; they don't move the "since the last action" window.
 const PASSIVE: &[&str] =
@@ -807,10 +807,10 @@ impl Runner {
             src: miette::NamedSource::new(&self.file, e.to_string()),
             bad_bit: (err.offset, 1).into(),
         })?;
-        match self.check(&c).await {
-            Ok((ok, actual)) => Ok(("OK".into(), ok, actual)),
+        match self.retry(&c, self.cfg.expect_ms).await {
+            Ok(((ok, actual), _)) => Ok(("OK".into(), ok, actual)),
             Err(err) => Err(AssertionError {
-                advice: Some(err.to_string()),
+                advice: Some(err.to_string().trim_start_matches("E_ASSERT ").into()),
                 src: miette::NamedSource::new(&self.file, e.to_string()),
                 bad_bit: (0, e.len()).into(),
             }),

@@ -9,6 +9,9 @@
 //! assert!(matches!(cond("no console errors").unwrap(), Cond::No(Expr::Subj(Subject::Console(false, Some(_))))));
 //! assert!(cond("a and b or c").is_err()); // no precedence: mixing needs parentheses
 //! assert!(cond("(a and b) or c").is_ok());
+//! assert!(matches!(cond(r#""Saved""#).unwrap(), Cond::Truthy(Expr::Loc(_)))); // a bare string is visible text
+//! assert!(matches!(cond(r#"no "Alice""#).unwrap(), Cond::No(Expr::Loc(_))));
+//! assert!(cond("201").is_err() && cond("true").is_err());
 //! assert!(matches!(value("2.5s").unwrap(), Expr::Lit(v) if v == 2500.0));
 //! assert_eq!(template("http://x/${id}/$${HOME}").unwrap().len(), 3);
 //! ```
@@ -516,7 +519,11 @@ pub fn loc(i: &mut In) -> R<Locator> {
     .parse_next(i)?;
     let nth =
         opt(delimited((ws, '['), preceded(ws, winnow::ascii::dec_int), sym("]"))).parse_next(i)?;
-    let scope = repeat(
+    let scope = scopes(i)?;
+    Ok(Locator { head, name: nm, filters, nth, first, scope })
+}
+fn scopes(i: &mut In) -> R<Vec<Scope>> {
+    repeat(
         0..,
         preceded(
             kw("in"),
@@ -527,8 +534,47 @@ pub fn loc(i: &mut In) -> R<Locator> {
             ))),
         ),
     )
-    .parse_next(i)?;
-    Ok(Locator { head, name: nm, filters, nth, first, scope })
+    .parse_next(i)
+}
+/// Where an action expects a locator, a bare name also works: `"Save" in dialog "X"`, or unquoted
+/// text up to `until` (`Save`, `Search Wikipedia with …`). `head` is `Named` or `Field`.
+fn bare_loc<'a>(head: Head, until: &'static str) -> impl FnMut(&mut In<'a>) -> R<Locator> {
+    move |i: &mut In<'a>| {
+        let unquoted = |i: &mut In<'a>| {
+            let s: &str = if until.is_empty() {
+                winnow::token::rest.parse_next(i)?
+            } else {
+                winnow::token::take_until(1.., until).parse_next(i)?
+            };
+            let s = s.trim();
+            match template(s) {
+                Ok(segs) if !s.is_empty() && !s.starts_with('"') => Ok(match segs_expr(segs) {
+                    Expr::Lit(v) => Name::Sub(super::eval::to_str(&v)),
+                    Expr::Tmpl(t) => Name::Tmpl(t),
+                    _ => unreachable!(),
+                }),
+                _ => Err(ErrMode::Backtrack(ContextError::new())),
+            }
+        };
+        alt(((name, scopes), unquoted.map(|n| (n, vec![]))))
+            .map(|(n, scope)| Locator {
+                head: head.clone(),
+                name: Some(n),
+                scope,
+                ..Default::default()
+            })
+            .parse_next(i)
+    }
+}
+/// A string literal where a condition expects a subject is the visible text it names.
+fn textual(e: Expr) -> Expr {
+    match e {
+        Expr::Lit(Value::String(s)) => {
+            Expr::Loc(Locator { name: Some(Name::Sub(s)), ..Default::default() })
+        }
+        Expr::Tmpl(t) => Expr::Loc(Locator { name: Some(Name::Tmpl(t)), ..Default::default() }),
+        e => e,
+    }
 }
 
 // ---------- conditions ----------
@@ -564,17 +610,21 @@ pub fn condition(i: &mut In) -> R<Cond> {
 fn cond_unary(i: &mut In) -> R<Cond> {
     alt((
         preceded(alt((kw("not"), sym("!"))), cond_unary).map(|c| Cond::Not(Box::new(c))),
-        preceded(kw("no"), cut_err(expr)).map(Cond::No),
-        preceded(kw("some"), cut_err(expr)).map(Cond::Some),
+        preceded(kw("no"), cut_err(expr)).map(|e| Cond::No(textual(e))),
+        preceded(kw("some"), cut_err(expr)).map(|e| Cond::Some(textual(e))),
         (expr, comparison).map(|(lhs, (neg, op, rhs, icase))| Cond::Cmp {
-            lhs,
+            lhs: if matches!(op, Op::State(_)) { textual(lhs) } else { lhs },
             neg,
             op,
             rhs,
             icase,
         }),
         delimited(sym("("), condition, sym(")")),
-        expr.map(Cond::Truthy),
+        cut_err(expr.verify(|e| !matches!(e, Expr::Lit(Value::Number(_) | Value::Bool(_)))))
+            .context(StrContext::Label(
+                "a comparison (a bare number or boolean always passes; e.g. `status is 201`)",
+            ))
+            .map(|e| Cond::Truthy(textual(e))),
     ))
     .parse_next(i)
 }
@@ -714,6 +764,9 @@ fn keyseq(i: &mut In) -> R<Vec<String>> {
 /// assert!(matches!(args("wait", "for text /listening on :(\\d+)/ in server or 60s").unwrap(), Args::Wait(e) if e.len() == 2));
 /// assert!(matches!(args("extract", "its match[1] into port").unwrap(), Args::Extract(_, p) if p == "port"));
 /// assert!(args("click", "").is_err());
+/// assert_eq!(args("click", "Sign in").unwrap(), Args::Loc(testkit::expr::Locator { head: testkit::expr::Head::Named, name: Some(testkit::expr::Name::Sub("Sign in".into())), ..Default::default() }));
+/// assert!(matches!(args("click", r#""Pay" in dialog "Checkout""#).unwrap(), Args::Loc(l) if l.to_string() == r#""Pay" in dialog "Checkout""#));
+/// assert!(matches!(args("fill", r#"Search Wikipedia with "selenium""#).unwrap(), Args::LocVal(l, _) if l.to_string() == r#"field "Search Wikipedia""#));
 /// assert!(matches!(args("type", "hello ${name} into field \"Q\"").unwrap(), Args::Type(Expr::Tmpl(_), Some(_))));
 /// assert!(matches!(args("enter", "\"1.0.0\"").unwrap(), Args::Type(Expr::Lit(v), None) if v == "1.0.0"));
 /// ```
@@ -725,11 +778,17 @@ pub fn args(verb: &str, s: &str) -> Result<Args, ParseErr> {
             template(s).map(Args::Tmpl)
         }
         "click" | "dblclick" | "hover" | "check" | "uncheck" | "tap" | "focus" => {
-            run(loc, s).map(Args::Loc)
+            run(alt((terminated(loc, (ws, eof)), bare_loc(Head::Named, ""))).map(Args::Loc), s)
         }
-        "fill" | "select" | "upload" => {
-            run((loc, kw("with"), expr).map(|(l, _, v)| Args::LocVal(l, v)), s)
-        }
+        "fill" | "upload" => run(
+            (
+                alt(((loc, peek(kw("with"))).map(|(l, _)| l), bare_loc(Head::Field, " with "))),
+                kw("with"),
+                expr,
+            )
+                .map(|(l, _, v)| Args::LocVal(l, v)),
+            s,
+        ),
         "type" | "enter" => {
             let (text, target) = match s.rsplit_once(" into ") {
                 Some((t, l)) => match locator(l) {

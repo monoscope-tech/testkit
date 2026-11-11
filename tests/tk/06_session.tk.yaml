@@ -6,52 +6,46 @@
 
 - claim: CLI steps share one live browser session
 - exec: ${tk} visit http://127.0.0.1:${port}/login --record ${rec}
-  asserts:
-    - ok: its exit is 0
-    - ok: its stdout contains "✓ visit"
+  expect:
+    - its exit is 0
+    - its stdout contains "✓ visit"
 - exec: ${tk} snapshot
-  asserts:
-    - ok: its stdout contains "textbox \"Email\""
-    - ok: its stdout matches /\[ref=e\d+\]/
+  expect:
+    - its stdout contains "textbox \"Email\""
+    - its stdout matches /\[ref=e\d+\]/
 - exec: ${tk} snapshot | grep 'textbox "Email"' | grep -o 'ref=e[0-9]*' | cut -d= -f2
 - extract: its stdout into email_ref
 - exec: ${tk} fill @${email_ref} --value admin@acme.com --record ${rec}
-  asserts:
-    - ok: its exit is 0
-    - ok: its stdout contains "recorded →"
+  expect:
+    - its exit is 0
+    - its stdout contains "recorded →"
 - exec: ${tk} fill 'field "Password"' --value hunter22 --record ${rec}
-  asserts:
-    - ok: its stdout contains "$${env.PASSWORD}"
+  expect: its stdout contains "$${env.PASSWORD}"
 - exec: ${tk} click 'button exactly "Sign in"' --record ${rec}
-  asserts:
-    - ok: its stdout contains "url      /login → /dashboard"
-    - ok: its stdout contains "appeared"
+  expect:
+    - its stdout contains "url      /login → /dashboard"
+    - its stdout contains "appeared"
 - exec: ${tk} expect 'heading "Dashboard" is visible' --record ${rec}
-  asserts:
-    - ok: its exit is 0
+  expect: its exit is 0
 
 - claim: Discovery commands help an agent decide the next step
 - exec: ${tk} find Orders
-  asserts:
-    - ok: its stdout contains "link \"Orders\""
+  expect: its stdout contains "link \"Orders\""
 - exec: ${tk} explain 'heading "Dashboard" is visible'
-  asserts:
-    - ok: 'its stdout contains "\"matches\": 1"'
-    - ok: 'its stdout contains "currently: true"'
+  expect:
+    - 'its stdout contains "\"matches\": 1"'
+    - 'its stdout contains "currently: true"'
 - exec: ${tk} observe network
-  asserts:
-    - ok: its stdout contains "/api/me"
+  expect: its stdout contains "/api/me"
 - exec: ${tk} suggest
-  asserts:
-    - ok: its exit is 0
+  expect: its exit is 0
 - exec: ${tk} expect 'heading "Nope" is visible within 1s'
   timeout: 20s
-  asserts:
-    - ok: its exit is 1
-    - ok: its stdout contains "E_ASSERT"
+  expect:
+    - its exit is 1
+    - its stdout contains "E_ASSERT"
 - exec: ${tk} session status
-  asserts:
-    - ok: its stdout contains "tabs"
+  expect: its stdout contains "tabs"
 - exec: ${tk} session stop
 
 - claim: The recording replays as a normal test with stable locators and no secrets
@@ -60,9 +54,9 @@
 - expect: file "${rec}"'s text does not contain "hunter22"
 - expect: file "${rec}"'s text does not contain "@e"
 - exec: PASSWORD=hunter22 ${env.TESTKIT_BIN} test ${rec}
-  asserts:
-    - ok: its exit is 0
-    - ok: its stdout contains "5 passed, 0 failed"
+  expect:
+    - its exit is 0
+    - its stdout contains "5 passed, 0 failed"
 
 - claim: Recorded values that came from responses become extract steps
 - exec: ${tk} session stop; rm -f .testkit/selftest/created.tk.yaml
@@ -72,23 +66,20 @@
 - GET: /api/orders
 - extract: its json[-1]'s id into new_id
 - exec: ${tk} visit http://127.0.0.1:${port}/orders/${new_id} --record .testkit/selftest/created.tk.yaml
-  asserts:
-    - ok: its stdout contains "came from an earlier response"
+  expect: its stdout contains "came from an earlier response"
 - exec: ${tk} expect 'heading "Order" is visible' --record .testkit/selftest/created.tk.yaml
 - exec: ${tk} session stop
-- expect: 'file ".testkit/selftest/created.tk.yaml"''s text contains "extract: (the json of last request \"POST /api/orders\")''s id into order_id"'
+- expect: 'file ".testkit/selftest/created.tk.yaml"''s text contains "extract: last request \"POST /api/orders\"''s json''s id into order_id"'
 - expect: file ".testkit/selftest/created.tk.yaml"'s text contains "/orders/$${order_id}"
 - exec: ${env.TESTKIT_BIN} test .testkit/selftest/created.tk.yaml
-  asserts:
-    - ok: its exit is 0
+  expect: its exit is 0
 
 - claim: Suggestions cover state changes and disappearances
 - exec: ${tk} session stop
 - exec: ${tk} visit http://127.0.0.1:${port}/widgets
 - exec: ${tk} check 'checkbox "Newsletter"'
 - exec: ${tk} suggest
-  asserts:
-    - ok: 'its stdout contains "expect: checkbox \"Newsletter\" is checked"'
+  expect: 'its stdout contains "expect: checkbox \"Newsletter\" is checked"'
 - exec: ${tk} visit http://127.0.0.1:${port}/popup
 - exec: ${tk} click 'button "Accept" in dialog "Cookie consent"'
 - exec: ${tk} suggest --accept 1 --record .testkit/selftest/suggested.tk.yaml

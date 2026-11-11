@@ -12,19 +12,21 @@
 - click: button "Sign in"
 - expect: alert "Invalid email or password" is visible
 - expect: the status of request "POST /api/session" is 401
-- expect: the path of page is "/login"
+- expect: the path is "/login"
 - expect: the value of field "Email" is "admin@acme.com"
 - expect: field "Password" is editable
 
 - claim: A user can sign in and the session works for API calls
-- check: checkbox "Remember me"
+- check: Remember me
 - expect: checkbox "Remember me" is checked
-- fill: field "Password" with "hunter22"
+- fill: Password with "hunter22"
 - click: button exactly "Sign in"
-- expect: heading "Dashboard" is visible
-- expect: alert "Welcome back" is visible
-- expect: text "Signed in as admin@acme.com" is visible
-- expect: the url of page ends with "/dashboard"
+  expect: the url ends with "/dashboard"
+- expect: heading "Dashboard"
+- expect: '"Welcome back" is visible'
+- expect: '"Signed in as admin@acme.com"'
+- expect: no "Invalid email or password"
+- expect: title is "Acme"
 - expect: no console errors
 - expect: navigation "Main"
   matches:
@@ -32,9 +34,9 @@
     - link "Orders"
 - GET: /api/me
   cookies: from default
-  asserts:
-    - ok: its status is 200
-    - ok: its json's email is "admin@acme.com"
+  expect:
+    - its status is 200
+    - its json's email is "admin@acme.com"
 - expect: the cookie "sid" is "s3cret"
 
 - claim: Signing in through a reusable flow works

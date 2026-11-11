@@ -33,20 +33,19 @@ Testkit is a small language and CLI for **operating, testing and proving** apps 
   ready: for text /localhost:(\d+)/ or 60s
 - extract: its match[1] into port
 - visit: /login                            # browser surface
-- fill: field "Email" with "admin@acme.com"
-- fill: field "Password" with "${env.PASS}"
-- click: button "Sign in"
-- expect: heading "Dashboard" is visible
+- fill: Email with "admin@acme.com"      # bare names: the field / button with that name
+- fill: Password with "${env.PASS}"
+- click: Sign in
+  expect: the url ends with "/dashboard"   # `expect:` works as a key on any step
 - expect: no console errors
 - claim: A user can create an order        # a named proof
-- click: button "New order"
-- fill: field "Customer" with "Alice"
-- click: button "Save"
+- click: New order
+- fill: Customer with "Alice"
+- click: Save
 - expect: the status of request "POST /api/orders" is 201
 - GET: /api/orders                         # API surface, same session cookies
   cookies: from default
-  asserts:
-    - ok: the json contains "Alice"
+  expect: [status is 200, json contains "Alice"]
 ```
 
 ```console
@@ -142,14 +141,17 @@ goes in sibling keys such as `json:`, `with:`, `respond:` or `matches:`. `testki
 ([src/grammar.md](src/grammar.md)); the design spec lives in the repository history.
 
 - **Locators** follow the accessibility tree, like Playwright: `button "Sign in"`, `field "Email"`, `text "Welcome"`,
-  `testid "checkout"`, `<css/>`, scoped with `button "Edit" in row /Alice/`. Actions auto-wait for elements to be visible,
+  `testid "checkout"`, `<css/>`, scoped with `button "Edit" in row /Alice/`. Actions also take a bare name:
+  `click: Sign in` (the interactive element with that name), `fill: Email with "a@b.co"` (that field).
+  In conditions a quoted string is visible text: `expect: '"Order created"'`, `no "Invalid password"`. Actions auto-wait for elements to be visible,
   stable and enabled, and are strict: an ambiguous locator fails with a unique locator for every candidate.
-- **Expressions** are hyperscript-flavoured: `its json's id is 1043`, `the status of request "POST /api/orders" is 201`,
+- **Expressions** are hyperscript-flavoured: `json.id is 1043`, `the title is "Acme"` (bare properties read the
+  previous step's result, or the page for `title`/`url`/`path`), `the status of request "POST /api/orders" is 201`,
   `no row /Alice/`, `the length of (orders where its status is "paid") is 2`, `name matches /^A/ ignoring case`.
   `it` is the previous step's result; `${var}` and `${env.X}` interpolate.
-- **Verbs** cover the browser (`visit click fill select check upload type press drag back reload`), HTTP (`GET POST PUT …`),
+- **Verbs** cover the browser (`visit click fill check upload type press drag back reload`), HTTP (`GET POST PUT …`),
   terminals (`exec spawn enter signal resize`), flow (`wait extract call route claim`) and evidence (`snapshot shot trace profile`).
-- `expect:` retries until it passes. Console and network subjects look at what happened since the last action,
+- `expect:` retries until it passes, as a step or as a key on any step (`expect: [status is 201, json.id is a Number]`). Console and network subjects look at what happened since the last action,
   and a run-wide guard fails a step that triggers a console error or an uncaught exception (`allow: [console errors]` to opt out).
 - Structural checks: `expect: table "Orders"` + `matches:` with a partial aria snapshot, `expect: screen` + lines,
   `expect: json` + a partial JSON shape, or `matches: golden/file.txt` (`--update-golden` refreshes).

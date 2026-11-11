@@ -338,7 +338,6 @@ impl Runner {
             }
             "hover" => &["visible", "stable", "receives"],
             "fill" => &["visible", "enabled", "editable"],
-            "select" => &["visible", "enabled"],
             _ => &[],
         };
         let deadline =
@@ -466,7 +465,6 @@ impl Runner {
                     }
                 }
             }
-            "select" => return select(t, &rf, &to_str(val.as_ref().unwrap_or(&Value::Null))).await,
             "upload" => {
                 let files: Vec<String> = match val {
                     Some(Value::Array(a)) => a.iter().map(to_str).collect(),

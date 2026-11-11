@@ -6,6 +6,9 @@
 //! assert_eq!(items[0].verb, "click");
 //! assert_eq!(items[1].verb, "GET");
 //! assert_eq!(items[1].line, 3);
+//! let i = &parse_yaml("- POST: /api\n  expect: [status is 201, json.id is a Number]\n").unwrap()[0];
+//! assert_eq!((i.verb.as_str(), i.opts.asserts.as_ref().unwrap().len()), ("POST", 2));
+//! assert!(parse_yaml("- POST: /api\n  expect: status is is").is_err());
 //! assert!(parse_yaml("- clik: x").unwrap_err().to_string().contains("unknown step"));
 //! assert!(parse_yaml("- click: x\n  colour: red").unwrap_err().to_string().contains("unknown key `colour`"));
 //! ```
@@ -19,8 +22,8 @@ pub const HTTP: &[&str] =
     &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE"];
 pub const VERBS: &[&str] = &[
     "meta", "claim", "call", "visit", "click", "dblclick", "hover", "check", "uncheck", "tap",
-    "focus", "fill", "select", "upload", "type", "press", "drag", "wait", "expect", "extract",
-    "shot", "snapshot", "route", "unroute", "exec", "spawn", "enter", "signal", "resize", "trace",
+    "focus", "fill", "upload", "type", "press", "drag", "wait", "expect", "extract", "shot",
+    "snapshot", "route", "unroute", "exec", "spawn", "enter", "signal", "resize", "trace",
     "profile", "heap", "coverage", "throttle", "network", "emulate", "mark", "back", "reload",
     "act", "launch", "swipe", "home", "deeplink",
 ];
@@ -252,8 +255,11 @@ pub fn parse_item(v: Value, line: usize) -> Result<Item> {
     };
     let is_verb = |k: &str| VERBS.contains(&k) || HTTP.contains(&k);
     let mut verbs: Vec<String> = map.keys().filter(|k| is_verb(k)).cloned().collect();
-    if verbs.len() == 2 && verbs.contains(&"claim".to_string()) {
-        verbs.retain(|k| k != "claim")
+    // `claim:` and `expect:` next to another verb are sibling keys
+    for k in ["claim", "expect"] {
+        if verbs.len() > 1 && verbs.iter().any(|v| v == k) {
+            verbs.retain(|v| v != k)
+        }
     }
     let verb = match verbs.as_slice() {
         [v] => v.clone(),
@@ -280,6 +286,20 @@ pub fn parse_item(v: Value, line: usize) -> Result<Item> {
     } else {
         args(&verb, &text).map_err(|e| anyhow!("line {line}: `{verb}: {text}`\n{e}"))?
     };
+    if let Some(e) = map.remove("expect") {
+        let conds = match e {
+            Value::Array(a) => a,
+            v => vec![v],
+        };
+        for c in &conds {
+            crate::expr::parse::cond(&scalar_text(c))
+                .map_err(|e| anyhow!("line {line}: `expect: {}`\n{e}", scalar_text(c)))?;
+        }
+        let asserts = map.entry("asserts").or_insert(Value::Array(vec![]));
+        if let Value::Array(a) = asserts {
+            a.extend(conds.into_iter().map(|c| serde_json::json!({ "ok": scalar_text(&c) })))
+        }
+    }
     if !HTTP.contains(&verb.as_str()) {
         map.insert("GET".into(), Value::String("<UNSET>".into()));
     }

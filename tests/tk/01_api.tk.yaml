@@ -36,21 +36,18 @@
     - { customer: Bob, status: paid }
     - { customer: Dana }
 - DELETE: /api/orders/${order_id}
-  asserts:
-    - ok: its json's deleted is true
+  expect: its json's deleted is true
 - GET: /api/orders/${order_id}
-  asserts:
-    - ok: its status is 404
+  expect: its status is 404
 
 - claim: Validation and auth errors are reported
 - POST: /api/orders
   json: { plan: Pro }
-  asserts:
-    - ok: its status is 422
-    - ok: its json's error contains "customer"
+  expect:
+    - its status is 422
+    - its json's error contains "customer"
 - GET: /api/me
-  asserts:
-    - ok: its status is 401
+  expect: its status is 401
 
 - claim: Routes mock API responses
 - route: GET /api/orders
@@ -58,17 +55,17 @@
     status: 503
     json: { error: maintenance }
 - GET: /api/orders
-  asserts:
-    - ok: its status is 503
-    - ok: its mocked is true
+  expect:
+    - its status is 503
+    - its mocked is true
 - unroute: GET /api/orders
 - route: GET /api/orders/1042
   modify:
     json: { status: refunded }
 - GET: /api/orders/1042
-  asserts:
-    - ok: its json's status is "refunded"
-    - ok: its json's customer is "Bob"
+  expect:
+    - its json's status is "refunded"
+    - its json's customer is "Bob"
 
 - claim: Iterations repeat a step with parameters
 - POST: /api/orders
@@ -76,8 +73,6 @@
     - { who: Eve }
     - { who: Finn }
   json: { customer: "${who}" }
-  asserts:
-    - ok: its status is 201
+  expect: its status is 201
 - GET: /api/orders
-  asserts:
-    - ok: the length of its json is 3
+  expect: the length of its json is 3

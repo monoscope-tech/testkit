@@ -1,6 +1,6 @@
 //! Android surface over adb (spec §5.4): uiautomator dumps become ARIA-like elements, so
 //! `tap: button "Sign in"` and `expect: text "Welcome" is visible` read the same as on the web.
-use crate::expr::{Filter, Head, Locator, Name, Scope};
+use crate::expr::{Filter, Head, Locator, Name, Scope, INTERACTIVE};
 use crate::runner::name_match;
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
@@ -176,6 +176,7 @@ pub fn find(els: &[Value], l: &Locator) -> Result<Vec<Value>> {
         |e: &Value, n: &Option<Name>, k: &str| n.as_ref().is_none_or(|n| name_match(n, &s(e, k)));
     let mut hits: Vec<Value> = match &l.head {
         Head::Role(r) => els.iter().filter(|e| s(e, "role") == *r && named(e, &l.name, "name")).cloned().collect(),
+        Head::Named => els.iter().filter(|e| INTERACTIVE.contains(&s(e, "role").as_str()) && named(e, &l.name, "name")).cloned().collect(),
         Head::Text => {
             let m: Vec<&Value> = els.iter().filter(|e| named(e, &l.name, "text") && e["visible"] == true).collect();
             // the smallest: drop matches that contain another match

@@ -482,8 +482,7 @@
     Content-Type: application/json
     X-Requested-With: XMLHttpRequest
     Authorization: Token $.env.TOKEN
-  asserts:
-    - ok: $.resp.status == 200
+  expect: $.resp.status == 200
 - title: Profile
   GET: '$.env.APIURL/profiles/celeb_$.env.USERNAME'
   headers:

@@ -126,6 +126,8 @@ pub enum Head {
     LastLine,
     Ref(u32),
     Closest(Box<Locator>, Box<Locator>),
+    /// A bare name (`click: Save`): any interactive element with that name.
+    Named,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -168,6 +170,26 @@ pub enum Event {
 pub const STATES: &[&str] = &[
     "visible", "hidden", "checked", "disabled", "enabled", "focused", "expanded", "invalid",
     "editable",
+];
+
+pub const INTERACTIVE: &[&str] = &[
+    "button",
+    "link",
+    "textbox",
+    "checkbox",
+    "radio",
+    "combobox",
+    "listbox",
+    "option",
+    "slider",
+    "spinbutton",
+    "switch",
+    "tab",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "searchbox",
+    "treeitem",
 ];
 
 pub const ROLES: &[&str] = &[
@@ -288,9 +310,11 @@ impl std::fmt::Display for Locator {
             Head::LastLine => write!(f, "last line")?,
             Head::Ref(n) => write!(f, "@e{n}")?,
             Head::Closest(a, b) => write!(f, "closest {a} to {b}")?,
+            Head::Named => {}
         }
         if let Some(n) = &self.name {
-            write!(f, " {n}")?;
+            let sep = if self.head == Head::Named { "" } else { " " };
+            write!(f, "{sep}{n}")?;
         }
         for fl in &self.filters {
             match fl {

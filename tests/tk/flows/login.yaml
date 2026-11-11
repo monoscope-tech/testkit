@@ -1,6 +1,6 @@
 # Signs in through the UI. Params: user, pass.
 - visit: /login
-- fill: field "Email" with "${user}"
-- fill: field "Password" with "${pass}"
-- click: button "Sign in"
+- fill: Email with "${user}"
+- fill: Password with "${pass}"
+- click: Sign in
 - expect: heading "Dashboard" is visible

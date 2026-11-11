@@ -125,6 +125,7 @@ const candidates = (loc, roots) => {
 };
 const matchHead = (el, kind, arg, name) => {
   if (kind === 'Role') return T.role(el) === arg && T.visible(el) && nameMatch(T.name(el), name);
+  if (kind === 'Named') return INTERACTIVE.includes(T.role(el)) && T.visible(el) && nameMatch(T.name(el), name);
   if (kind === 'Field') return isField(el) && T.visible(el) && (!name || fieldNames(el).some(n => nameMatch(n, name)));
   if (kind === 'Testid') return el.getAttribute('data-testid') !== null && nameMatch(el.getAttribute('data-testid'), name);
   if (kind === 'Text') {

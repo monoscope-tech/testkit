@@ -1,5 +1,5 @@
 - title: GET characters
   GET: https://rickandmortyapi.com/api/character
-  asserts:
-    - ok: $.resp.json.info.count > 800
-    - ok: $.resp.json.results[0].name == "Rick Sanchez"
+  expect:
+    - $.resp.json.info.count > 800
+    - $.resp.json.results[0].name == "Rick Sanchez"

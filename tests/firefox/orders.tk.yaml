@@ -22,7 +22,7 @@
 - claim: A user can create an order and read it back through the API
 - click: button "New order"
 - fill: field "Customer" with "Alice"
-- select: field "Plan" with "Pro"
+- fill: field "Plan" with "Pro"
 - click: button "Save"
 - expect: alert "Order created" is visible
 - extract: (the json of request "POST /api/orders")'s id into order_id

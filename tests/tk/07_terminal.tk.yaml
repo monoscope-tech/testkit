@@ -13,8 +13,7 @@
 - expect: its stdout ends with "${port}"
 - expect: its stdout does not contain "$${HOME}"
 - exec: "false"
-  asserts:
-    - ok: its exit is 1
+  expect: its exit is 1
 
 - claim: Interactive prompts can be driven line by line
 - spawn: ./fixtures/wizard.sh

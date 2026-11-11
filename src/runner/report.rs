@@ -53,7 +53,7 @@ impl Runner {
                     .find_map(|p| p.as_ref().ok().cloned())
                     .unwrap_or_else(|| "value".into());
                 let name = if key == "id" { format!("{resource}_id") } else { key };
-                let expr = format!("(the json of last request \"{} {pat}\"){access}", q.method);
+                let expr = format!("last request \"{} {pat}\"'s json{access}", q.method);
                 // the request that produced the value (a write) beats later reads that echo it
                 let score = (path.len(), !["POST", "PUT", "PATCH"].contains(&q.method.as_str()));
                 if best.as_ref().is_none_or(|b| score < b.0) {

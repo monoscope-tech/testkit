@@ -36,7 +36,7 @@
 - shot: orders.png
 - expect: file "${it.file}" exists
 - back:
-- expect: the path of page is "/login"
+- expect: the path is "/login"
 - reload:
 - expect: heading "Sign in" is visible
 
@@ -49,22 +49,20 @@
 
 - claim: Config profiles change behaviour per environment
 - exec: cd fixtures/profiled && ${tk} --base-url ${url} test guarded.yaml
-  asserts:
-    - ok: its exit is 1
-    - ok: its stdout contains "E_GUARD"
+  expect:
+    - its exit is 1
+    - its stdout contains "E_GUARD"
 - exec: cd fixtures/profiled && ${tk} --base-url ${url} --profile local test guarded.yaml
-  asserts:
-    - ok: its exit is 0
+  expect: its exit is 0
 
 - claim: Terminal snapshots can show colors
 - exec: ${tk} --session styles session stop; ${tk} --session styles spawn "printf '\033[31mERROR\033[0m plain\n'; sleep 20"
 - exec: sleep 0.5; ${tk} --session styles snapshot --all
-  asserts:
-    - ok: its stdout contains "[red]ERROR[/] plain"
+  expect: its stdout contains "[red]ERROR[/] plain"
 - exec: ${tk} --session styles session stop
 
 - claim: Chrome for Testing can be installed
 - exec: ${tk} install chrome --dry-run
-  asserts:
-    - ok: its stdout contains "chrome-for-testing-public"
-    - ok: its stdout contains ".cache/testkit/chrome"
+  expect:
+    - its stdout contains "chrome-for-testing-public"
+    - its stdout contains ".cache/testkit/chrome"

@@ -35,7 +35,6 @@
 - network: online
 - throttle: cpu 1x
 - emulate: iPhone 15
-- expect: (the innerWidth of page) is null or true
 - emulate: desktop
 
 - claim: Accessibility problems are reported

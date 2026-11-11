@@ -34,6 +34,32 @@ impl Runner {
         self.check_once(&mut c.clone()).await
     }
 
+    /// Re-checks a condition until it holds or `timeout` passes; conditions that read nothing live
+    /// (no subjects, locators or sessions) are checked once. Returns the last result and liveness.
+    pub(crate) async fn retry(
+        &mut self,
+        c: &Cond,
+        timeout: u64,
+    ) -> Result<((bool, Option<String>), bool)> {
+        let mut qs = vec![];
+        eval::queries_cond(c, &self.vars, &mut qs);
+        let t = Instant::now();
+        let mut last = (false, None);
+        loop {
+            match self.check(c).await {
+                Ok(r) => last = r,
+                Err(e) if qs.is_empty() || t.elapsed().as_millis() as u64 >= timeout => {
+                    bail!("E_ASSERT {e}")
+                }
+                Err(_) => {}
+            }
+            if last.0 || qs.is_empty() || t.elapsed().as_millis() as u64 >= timeout {
+                return Ok((last, !qs.is_empty()));
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     pub(crate) async fn expect(
         &mut self,
         item: &Item,
@@ -53,24 +79,8 @@ impl Runner {
                 return Ok(json!({"baseline": n, "value": v}));
             }
         }
-        let mut qs = vec![];
-        eval::queries_cond(c, &self.vars, &mut qs);
         let timeout = within.unwrap_or(self.cfg.expect_ms);
-        let t = Instant::now();
-        let mut last = (false, None);
-        loop {
-            match self.check(c).await {
-                Ok(r) => last = r,
-                Err(e) if qs.is_empty() || t.elapsed().as_millis() as u64 >= timeout => {
-                    bail!("E_ASSERT {e}")
-                }
-                Err(_) => {}
-            }
-            if last.0 || qs.is_empty() || t.elapsed().as_millis() as u64 >= timeout {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        let (mut last, live) = self.retry(c, timeout).await?;
         if let Some((ok, note)) = self.sample_gate(c).await? {
             last = (ok, Some(note.clone()));
             log::info!(target: "testkit", "{note}");
@@ -113,7 +123,7 @@ impl Runner {
             bail!(
                 "E_ASSERT expected `{}`{}\n    actual    {}",
                 item.text,
-                if qs.is_empty() { String::new() } else { format!(" within {timeout}ms") },
+                if live { format!(" within {timeout}ms") } else { String::new() },
                 last.1.unwrap_or_else(|| "(no value)".into())
             );
         }
@@ -465,7 +475,23 @@ impl Runner {
                 } else if let Some(t) = self.tabs.get(v) {
                     t.page_state().await
                 } else {
-                    return Ok(None);
+                    // a bare property reads `it` (`status`, `duration`) or the page (`title`, `url`, `path`)
+                    let page = match self.tabs.get(&self.cur_b) {
+                        Some(t) => t.page_state().await,
+                        None => Value::Null,
+                    };
+                    let (a, b) = if ["title", "url", "path"].contains(&v.as_str()) {
+                        (&page, &self.it)
+                    } else {
+                        (&self.it, &page)
+                    };
+                    let found = [a, b]
+                        .into_iter()
+                        .find_map(|o| o.get(v.as_str()).filter(|x| !x.is_null()).cloned());
+                    match found {
+                        Some(x) => x,
+                        None => return Ok(None),
+                    }
                 }
             }
             Expr::Loc(l) => {
