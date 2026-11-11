@@ -12,7 +12,7 @@ use crate::browser::{loc_json, merge, response_parts, url_match, Chrome, Req, Ro
 use crate::expr::eval::{self, key, render, test, to_str, Ctx};
 use crate::expr::parse::{args, template, Args};
 use crate::expr::*;
-use crate::item::{parse_yaml, scalar_text, Item, HTTP};
+use crate::item::{is_flow, parse_yaml, scalar_text, Item, HTTP, VERBS};
 use crate::term::{self, Pty};
 use anyhow::{anyhow, bail, Result};
 pub(crate) use report::*;
@@ -185,6 +185,43 @@ const MOBILE_VERBS: &[&str] = &["launch", "swipe", "home", "deeplink"];
 const MOBILE_SHARED: &[&str] =
     &["click", "tap", "dblclick", "check", "uncheck", "focus", "fill", "type", "press", "back"];
 
+/// The flow a step like `login: as "a" with "b"` calls: `flows/login.yaml` next to the file or in a
+/// parent directory, with its arguments matched against the flow's `meta: { args: … }` phrase.
+pub(crate) fn flow(item: &Item, dir: &std::path::Path) -> Result<(PathBuf, Vec<(String, Expr)>)> {
+    let name = item.verb.replace(' ', "-");
+    let dir = std::env::current_dir().unwrap_or_default().join(dir);
+    let path = dir
+        .ancestors()
+        .flat_map(|d| ["yaml", "tk.yaml"].map(|e| d.join("flows").join(format!("{name}.{e}"))))
+        .find(|p| p.is_file())
+        .ok_or_else(|| {
+            let near = VERBS.iter().min_by_key(|v| strsim::levenshtein(v, &item.verb)).unwrap_or(&"");
+            anyhow!("line {}: unknown step `{}`; did you mean `{near}:`? (no flows/{name}.yaml here or above either)", item.line, item.verb)
+        })?;
+    let src = std::fs::read_to_string(&path)?;
+    let pattern = parse_yaml(&src)
+        .map_err(|e| anyhow!("{}: {e}", path.display()))?
+        .first()
+        .filter(|m| m.verb == "meta")
+        .and_then(|m| m.raw.get("args").map(scalar_text))
+        .unwrap_or_default();
+    let args = crate::expr::parse::flow_args(&pattern, &item.text).map_err(|e| {
+        anyhow!(
+            "line {}: `{}: {}` does not match `{}: {pattern}` ({})\n{e}",
+            item.line,
+            item.verb,
+            item.text,
+            item.verb,
+            path.display()
+        )
+    })?;
+    Ok((path, args))
+}
+/// Flow calls are resolved before a file runs, so a typo fails like any other parse error.
+pub(crate) fn check_flows(items: &[Item], dir: &std::path::Path) -> Result<()> {
+    items.iter().filter(|i| is_flow(&i.verb)).try_for_each(|i| flow(i, dir).map(|_| ()))
+}
+
 fn fail(msg: impl Into<String>) -> anyhow::Error {
     anyhow!(msg.into())
 }
@@ -248,6 +285,7 @@ impl Runner {
     pub async fn run_src(&mut self, file: &str, src: &str) -> Result<Vec<StepResult>> {
         self.file = file.into();
         let items = parse_yaml(src).map_err(|e| anyhow!("{file}: {e}"))?;
+        check_flows(&items, &self.dir).map_err(|e| anyhow!("{file}: {e}"))?;
         Ok(self.run_items(&items).await)
     }
 
@@ -429,6 +467,7 @@ impl Runner {
                         self.vars.extend(o.clone())
                     }
                 }
+                "args" => {}
                 _ => {
                     self.vars.insert(k.clone(), v.clone());
                 }
@@ -769,7 +808,7 @@ impl Runner {
             }
         }
         if let Some(ex) = &item.opts.exports {
-            if item.verb == "call" {
+            if item.verb == "call" || is_flow(&item.verb) {
                 return;
             }
             for (k, v) in ex.as_object().cloned().unwrap_or_default() {

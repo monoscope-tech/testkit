@@ -19,6 +19,26 @@ pub struct Finding {
     pub error: bool,
 }
 
+/// `lint` plus flow steps resolved against the file's directory (a typo'd verb is an unknown flow).
+pub fn lint_file(path: &std::path::Path) -> std::io::Result<Vec<Finding>> {
+    let src = std::fs::read_to_string(path)?;
+    let mut found = lint(&src);
+    let dir = path.parent().unwrap_or(std::path::Path::new(""));
+    for i in parse_yaml_quoted(&src).map(|x| x.0).unwrap_or_default() {
+        if let Err(e) =
+            crate::item::is_flow(&i.verb).then(|| crate::runner::flow(&i, dir)).transpose()
+        {
+            found.push(Finding {
+                line: i.line,
+                rule: "unknown-flow",
+                message: e.to_string(),
+                error: true,
+            })
+        }
+    }
+    Ok(found)
+}
+
 pub fn lint(src: &str) -> Vec<Finding> {
     let w = |line, rule, message: String| Finding { line, rule, message, error: false };
     let (items, quoted) = match parse_yaml_quoted(src) {

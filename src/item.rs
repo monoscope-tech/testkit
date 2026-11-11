@@ -9,7 +9,8 @@
 //! let i = &parse_yaml("- POST: /api\n  expect: [status is 201, json.id is a Number]\n").unwrap()[0];
 //! assert_eq!((i.verb.as_str(), i.opts.asserts.as_ref().unwrap().len()), ("POST", 2));
 //! assert!(parse_yaml("- POST: /api\n  expect: status is is").is_err());
-//! assert!(parse_yaml("- clik: x").unwrap_err().to_string().contains("unknown step"));
+//! assert_eq!(parse_yaml("- create order: for \"Al\"").unwrap()[0].verb, "create order"); // a flow
+//! assert!(parse_yaml("- Clik: x").unwrap_err().to_string().contains("unknown step"));
 //! assert!(parse_yaml("- click: x\n  colour: red").unwrap_err().to_string().contains("unknown key `colour`"));
 //! ```
 use crate::base_request::{Assert, RequestConfig};
@@ -114,6 +115,11 @@ pub struct Item {
     pub args: Args,
     pub opts: Opts,
     pub line: usize,
+}
+
+/// A step key that isn't a built-in verb calls the flow of that name.
+pub fn is_flow(verb: &str) -> bool {
+    !VERBS.contains(&verb) && !HTTP.contains(&verb)
 }
 
 impl Item {
@@ -266,14 +272,24 @@ pub fn parse_item(v: Value, line: usize) -> Result<Item> {
         [] => {
             let unknown: Vec<_> =
                 map.keys().filter(|k| !OPT_KEYS.contains(&k.as_str())).cloned().collect();
-            if unknown.iter().any(|k| k == "select") {
-                bail!("line {line}: `select:` is now `fill:` (it picks `<select>` options); `testkit migrate` rewrites it")
+            match unknown.as_slice() {
+                [k] if k == "select" => bail!("line {line}: `select:` is now `fill:` (it picks `<select>` options); `testkit migrate` rewrites it"),
+                // any other single key names a flow: `login:` runs flows/login.yaml
+                [k] if k.starts_with(|c: char| c.is_ascii_lowercase())
+                    && k.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || " -_".contains(c))
+                    && !map[k].is_object()
+                    && !map[k].is_array() =>
+                {
+                    k.clone()
+                }
+                _ => bail!("line {line}: unknown step {:?}; expected one of: {}, or a flow name", unknown, VERBS.join(", ")),
             }
-            bail!("line {line}: unknown step {:?}; expected one of: {}", unknown, VERBS.join(", "))
         }
         many => bail!("line {line}: a step has exactly one verb, found {}", many.join(", ")),
     };
-    if let Some(k) = map.keys().find(|k| !is_verb(k) && !OPT_KEYS.contains(&k.as_str())) {
+    if let Some(k) =
+        map.keys().find(|k| **k != verb && !is_verb(k) && !OPT_KEYS.contains(&k.as_str()))
+    {
         bail!("line {line}: unknown key `{k}` on `{verb}` step")
     }
     let raw = if HTTP.contains(&verb.as_str()) {
@@ -282,8 +298,8 @@ pub fn parse_item(v: Value, line: usize) -> Result<Item> {
         map.remove(&verb).unwrap_or_default()
     };
     let text = scalar_text(&raw);
-    let parsed = if ["meta", "claim", "act", "launch", "swipe", "home", "deeplink"]
-        .contains(&verb.as_str())
+    let parsed = if is_flow(&verb)
+        || ["meta", "claim", "act", "launch", "swipe", "home", "deeplink"].contains(&verb.as_str())
     {
         Args::Raw(text.clone())
     } else {

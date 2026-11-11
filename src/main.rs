@@ -586,7 +586,7 @@ async fn run(cli: Cli) -> Result<i32> {
             };
             let (mut errors, mut warnings) = (0, 0);
             for f in &files {
-                for x in testkit::lint::lint(&std::fs::read_to_string(f)?) {
+                for x in testkit::lint::lint_file(f)? {
                     if out == "github" {
                         println!(
                             "::{} file={},line={},title={}::{}",

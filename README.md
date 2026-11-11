@@ -156,6 +156,8 @@ goes in sibling keys such as `json:`, `with:`, `respond:` or `matches:`. `testki
 - Structural checks: `expect: table "Orders"` + `matches:` with a partial aria snapshot, `expect: screen` + lines,
   `expect: json` + a partial JSON shape, or `matches: golden/file.txt` (`--update-golden` refreshes).
 - `route:` mocks responses for the browser and for API steps; `call: flows/login.yaml` composes files (`with:` in, `exports:` out).
+  A flow is also a step of its own: `- login: as "admin@acme.com" with "${env.PASS}"` runs `flows/login.yaml`, which
+  declares the phrase with `- meta: { args: "as {user} with {pass}" }`; unknown names fail before anything runs.
 
 ## Driving an app from the CLI (and agents)
 

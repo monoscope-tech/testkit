@@ -171,6 +171,7 @@ impl Runner {
                 Ok(Value::Null)
             }
             (Args::Tmpl(_), "call") => self.call(item, r).await,
+            (Args::Raw(_), v) if crate::item::is_flow(v) => self.call(item, r).await,
             (Args::Shot(path, l), _) => self.shot(path.as_ref(), l.as_ref()).await,
             (Args::Snapshot(l), _) => {
                 let s = self.snapshot(l.as_ref(), false).await?;
@@ -867,14 +868,22 @@ impl Runner {
     }
 
     pub(crate) async fn call(&mut self, item: &Item, r: &mut StepResult) -> Result<Value> {
-        let path = self.dir.join(self.render(&item.text)?);
+        let (path, args) = if item.verb == "call" {
+            (self.dir.join(self.render(&item.text)?), vec![])
+        } else {
+            flow(item, &self.dir)?
+        };
         let src = std::fs::read_to_string(&path)
             .map_err(|e| anyhow!("call: cannot read {}: {e}", path.display()))?;
         if self.depth > 20 {
             bail!("call: include cycle at {}", path.display())
         }
         let items = parse_yaml(&src).map_err(|e| anyhow!("{}: {e}", path.display()))?;
+        check_flows(&items, path.parent().unwrap_or(&self.dir))?;
         let mut params = Map::new();
+        for (k, e) in args {
+            params.insert(k, self.value(&e).await?);
+        }
         for (k, v) in item.opts.with.clone().unwrap_or_default() {
             params.insert(
                 k,

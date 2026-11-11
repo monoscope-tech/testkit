@@ -1,4 +1,5 @@
-# Signs in through the UI. Params: user, pass.
+# Signs in through the UI: `- login: as "a@b.co" with "pw"` (or `call:` with `with: { user, pass }`).
+- meta: { args: "as {user} with {pass}" }
 - visit: /login
 - fill: Email with "${user}"
 - fill: Password with "${pass}"

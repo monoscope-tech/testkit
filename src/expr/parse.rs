@@ -881,6 +881,35 @@ pub fn args(verb: &str, s: &str) -> Result<Args, ParseErr> {
     }
 }
 
+/// The arguments of a flow call, matched against the flow's `args:` phrase, where `{name}` holes
+/// are values and other words must appear as written.
+///
+/// ```
+/// use testkit::expr::{parse::flow_args, Expr};
+/// let a = flow_args("as {user} with {pass}", r#"as "a@b.co" with "${env.P}""#).unwrap();
+/// assert_eq!(a.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["user", "pass"]);
+/// assert!(matches!(&a[1].1, Expr::Tmpl(_)));
+/// assert!(flow_args("as {user}", r#"for "a""#).is_err());
+/// assert!(flow_args("", "").unwrap().is_empty());
+/// ```
+pub fn flow_args(pattern: &str, s: &str) -> Result<Vec<(String, Expr)>, ParseErr> {
+    run(
+        |i: &mut In| {
+            let mut out = vec![];
+            for tok in pattern.split_whitespace() {
+                match tok.strip_prefix('{').and_then(|t| t.strip_suffix('}')) {
+                    Some(n) => out.push((n.to_string(), cut_err(postfixed).parse_next(i)?)),
+                    None => {
+                        cut_err(word.verify(|w: &String| w == tok)).parse_next(i)?;
+                    }
+                }
+            }
+            Ok(out)
+        },
+        s.trim(),
+    )
+}
+
 /// One aria-snapshot node line: `role "name" [state] [k=v]` (spec §8 `matches:`).
 ///
 /// ```

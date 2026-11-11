@@ -35,6 +35,10 @@
   expect:
     - its exit is 2
     - its stderr contains "unknown key `colour`"
+- exec: ${tk} test fixtures/flow_typo.yaml
+  expect: [its exit is 2, its stderr contains "line 2: unknown step `clik`; did you mean `click:`?"]
+- exec: ${tk} test fixtures/flow_args.yaml
+  expect: [its exit is 2, 'its stderr contains "does not match `login: as {user} with {pass}`"']
 
 - claim: Browser errors name the problem and suggest a fix
 - exec: ${tk} --base-url http://127.0.0.1:${port} test fixtures/browser_errors.yaml
@@ -90,7 +94,7 @@
 - exec: "printf -- '- GET: http://x/{{id}}\\n  headers:\\n    A: $.env.KEY\\n  asserts:\\n    - ok: status is 200\\n- select: field \"Plan\" with \"Pro\"\\n' > .testkit/selftest/legacy.yaml && ${tk} migrate .testkit/selftest/legacy.yaml"
 - expect: file ".testkit/selftest/legacy.yaml"'s text contains "http://x/$${id}"
 - expect: file ".testkit/selftest/legacy.yaml"'s text contains "$${env.KEY}"
-- expect: file ".testkit/selftest/legacy.yaml"'s text contains "  expect: status is 200"
+- expect: 'file ".testkit/selftest/legacy.yaml"''s text contains "  expect: status is 200"'
 - expect: 'file ".testkit/selftest/legacy.yaml"''s text contains "- fill: field \"Plan\""'
 - exec: ${tk} lint .testkit/selftest/legacy.yaml
   expect: its exit is 0

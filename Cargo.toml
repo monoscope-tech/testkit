@@ -15,6 +15,7 @@ video = ["dep:openh264", "dep:mp4"]
 name = "testkit"
 
 [dependencies]
+strsim = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1.0"
